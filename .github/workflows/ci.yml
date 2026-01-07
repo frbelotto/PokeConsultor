@@ -20,8 +20,32 @@ jobs:
       - name: Set up Python with uv
         uses: astral-sh/setup-uv@v4
         with:
-          python-version: "3.13"
+          python-version: "3.11"
           enable-cache: false
+
+      - name: Create test .env file
+        shell: bash
+        run: |
+          cat > .env << 'EOF'
+          LLM_DEFAULT_PROVIDER=groq
+          LLM_DEFAULT_MODEL=llama-3.1-8b-instant
+          LLM_DEFAULT_TEMPERATURE=0.7
+          LLM_DEFAULT_MAX_TOKENS=500
+          LLM_PROFILE_EXECUTOR_PROVIDER=groq
+          LLM_PROFILE_EXECUTOR_MODEL=llama-3.1-8b-instant
+          LLM_PROFILE_EXECUTOR_TEMPERATURE=0.5
+          LLM_PROFILE_EXECUTOR_MAX_TOKENS=1000
+          LLM_PROFILE_SUPERVISOR_PROVIDER=groq
+          LLM_PROFILE_SUPERVISOR_MODEL=llama-3.1-70b-versatile
+          LLM_PROFILE_SUPERVISOR_TEMPERATURE=0.3
+          LLM_PROFILE_SUPERVISOR_MAX_TOKENS=2000
+          DATA_PATH=data
+          CACHE_DIR=.cache/vector_stores
+          LOG_LEVEL=INFO
+          POKEAPI_MCP_SERVER_URL=http://localhost:3000
+          POKEAPI_MCP_ENABLED=false
+          GROQ_API_KEY=dummy
+          EOF
 
       - name: Sync dependencies (including dev)
         shell: bash
