@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 
 class MessageRole(str, Enum):
@@ -23,16 +23,18 @@ class ConversationMessage(BaseModel):
     with role, content, and timestamp for tracking.
     """
 
+    model_config = ConfigDict(ser_json_dumps_kwargs={"default": str})
+
     role: MessageRole = Field(description="Role of the message sender")
     content: str = Field(description="The message content")
     timestamp: datetime = Field(
         default_factory=datetime.now, description="When message was created"
     )
 
-    class Config:
-        """Pydantic config."""
-
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    @field_serializer("timestamp", when_used="json")
+    def serialize_timestamp(self, value: datetime) -> str:
+        """Serialize datetime to ISO format for JSON."""
+        return value.isoformat()
 
 
 class LLMRequest(BaseModel):
