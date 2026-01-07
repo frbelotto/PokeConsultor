@@ -44,7 +44,10 @@ jobs:
           LOG_LEVEL=INFO
           POKEAPI_MCP_SERVER_URL=http://localhost:3000
           POKEAPI_MCP_ENABLED=false
-          GROQ_API_KEY=dummy
+          # Provider API keys (placeholders for CI)
+          GROQ_API_KEY=gsk_test_key
+          OPENAI_API_KEY=sk_test_key
+          ANTHROPIC_API_KEY=ak_test_key
           EOF
 
       - name: Sync dependencies (including dev)
