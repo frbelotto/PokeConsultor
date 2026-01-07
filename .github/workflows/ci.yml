@@ -51,47 +51,31 @@ jobs:
           EOF
 
       - name: Sync dependencies (including dev)
-        shell: bash
-        run: |
-          set -o pipefail
-          mkdir -p logs
-          uv sync --dev 2>&1 | tee logs/uv_sync.txt
+        run: uv sync --dev
 
       - name: Run test suite (with report)
-        shell: bash
         run: |
-          set -o pipefail
           mkdir -p reports
           export PYTHONPATH="${PWD}:$PYTHONPATH"
-          uv run pytest tests/ -v --tb=short --junitxml=reports/pytest.xml 2>&1 | tee reports/test_output.txt
+          uv run pytest tests/ -v --tb=short --junitxml=reports/pytest.xml
 
       - name: Display logs if failed
         if: failure()
-        shell: bash
-        run: |
-          echo "=== UVSync Log ===" 
-          cat logs/uv_sync.txt || echo "(no uv_sync.txt)"
-          echo -e "\n=== Pytest Output ===" 
-          cat reports/test_output.txt || echo "(no test_output.txt)"
+        run: cat reports/test_output.txt || echo "(no test_output.txt)"
 
       - name: Add logs summary to job
         if: always()
         shell: bash
         run: |
-          echo "## CI Logs Summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "\n### uv sync (last 500 lines)" >> "$GITHUB_STEP_SUMMARY"
-          if [ -f logs/uv_sync.txt ]; then tail -n 500 logs/uv_sync.txt >> "$GITHUB_STEP_SUMMARY"; else echo "(no uv_sync.txt)" >> "$GITHUB_STEP_SUMMARY"; fi
-          echo "\n### pytest output (last 500 lines)" >> "$GITHUB_STEP_SUMMARY"
-          if [ -f reports/test_output.txt ]; then tail -n 500 reports/test_output.txt >> "$GITHUB_STEP_SUMMARY"; else echo "(no test_output.txt)" >> "$GITHUB_STEP_SUMMARY"; fi
-          echo "\n### pytest errors (grep)" >> "$GITHUB_STEP_SUMMARY"
-          if [ -f reports/test_output.txt ]; then grep -i -E "(FAIL|ERROR|Traceback|AssertionError)" reports/test_output.txt | tail -n 200 >> "$GITHUB_STEP_SUMMARY" || true; else echo "(no test_output.txt)" >> "$GITHUB_STEP_SUMMARY"; fi
+          echo "## CI Test Summary" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f reports/test_output.txt ]; then
+            echo "### Test Output" >> "$GITHUB_STEP_SUMMARY"
+            tail -n 100 reports/test_output.txt >> "$GITHUB_STEP_SUMMARY"
+          fi
 
-      - name: Upload logs and reports (always)
+      - name: Upload reports (always)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ci-logs
-          path: |
-            logs/uv_sync.txt
-            reports/pytest.xml
-            reports/test_output.txt
+          name: test-reports
+          path: reports/
