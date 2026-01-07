@@ -62,7 +62,17 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p reports
+          export PYTHONPATH="${PWD}:$PYTHONPATH"
           uv run pytest tests/ -v --tb=short --junitxml=reports/pytest.xml 2>&1 | tee reports/test_output.txt
+
+      - name: Display logs if failed
+        if: failure()
+        shell: bash
+        run: |
+          echo "=== UVSync Log ===" 
+          cat logs/uv_sync.txt || echo "(no uv_sync.txt)"
+          echo -e "\n=== Pytest Output ===" 
+          cat reports/test_output.txt || echo "(no test_output.txt)"
 
       - name: Add logs summary to job
         if: always()
