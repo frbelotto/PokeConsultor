@@ -46,8 +46,6 @@ jobs:
           POKEAPI_MCP_ENABLED=false
           # Provider API keys (placeholders for CI)
           GROQ_API_KEY=gsk_test_key
-          OPENAI_API_KEY=sk_test_key
-          ANTHROPIC_API_KEY=ak_test_key
           EOF
 
       - name: Sync dependencies (including dev)
