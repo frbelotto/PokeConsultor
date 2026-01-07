@@ -61,8 +61,18 @@ jobs:
           mkdir -p reports
           uv run pytest tests/ -v --tb=short --junitxml=reports/pytest.xml 2>&1 | tee reports/test_output.txt
 
-      - name: Upload logs and reports when failing
-        if: failure()
+      - name: Add logs summary to job
+        if: always()
+        shell: bash
+        run: |
+          echo "## CI Logs Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "\n### uv sync (tail)" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f logs/uv_sync.txt ]; then tail -n 200 logs/uv_sync.txt >> "$GITHUB_STEP_SUMMARY"; else echo "(no uv_sync.txt)" >> "$GITHUB_STEP_SUMMARY"; fi
+          echo "\n### pytest output (tail)" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f reports/test_output.txt ]; then tail -n 200 reports/test_output.txt >> "$GITHUB_STEP_SUMMARY"; else echo "(no test_output.txt)" >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Upload logs and reports (always)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ci-logs
