@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  tests:
+    name: Run tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python with uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Sync dependencies (including dev)
+        run: uv sync --dev
+
+      - name: Run test suite
+        run: uv run pytest tests/ -v

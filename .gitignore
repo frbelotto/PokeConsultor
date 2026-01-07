@@ -28,6 +28,8 @@ MANIFEST
 env/
 venv/
 ENV/
+.vscode/
+uv.lock
 
 # --- Testing & Quality ---
 .coverage
@@ -57,3 +59,5 @@ Thumbs.db
 *.log
 *.spec
 build.log
+.cache/
+data/**

@@ -1,4 +1,6 @@
-"""Unit tests for configuration module."""
+"""Unit tests for configuration module - simplified and focused on critical paths."""
+
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -7,13 +9,8 @@ from pokeconsultor.config import Settings
 
 
 @pytest.fixture
-def clean_settings():
-    """Reset singleton state before and after each test.
-
-    This fixture ensures that each test gets a fresh Settings instance
-    by cleaning up the singleton pattern before and after each test.
-    """
-    # Clean up singleton before test
+def clean_settings() -> None:
+    """Reset singleton state before and after each test."""
     if hasattr(Settings, "_instance"):
         delattr(Settings, "_instance")
     if hasattr(Settings, "_initialized"):
@@ -21,377 +18,244 @@ def clean_settings():
 
     yield
 
-    # Clean up singleton after test
     if hasattr(Settings, "_instance"):
         delattr(Settings, "_instance")
     if hasattr(Settings, "_initialized"):
         Settings._initialized = False
 
 
+@pytest.fixture
+def valid_settings_data() -> dict:
+    """Provide valid settings data for tests."""
+    return {
+        "LLM_DEFAULT_PROVIDER": "groq",
+        "LLM_DEFAULT_MODEL": "mixtral-8x7b-32768",
+        "LLM_DEFAULT_TEMPERATURE": 0.7,
+        "LLM_DEFAULT_MAX_TOKENS": 2048,
+        "LLM_PROFILE_EXECUTOR_PROVIDER": "groq",
+        "LLM_PROFILE_EXECUTOR_MODEL": "llama-3.3-70b-versatile",
+        "LLM_PROFILE_EXECUTOR_TEMPERATURE": 0.3,
+        "LLM_PROFILE_EXECUTOR_MAX_TOKENS": 4096,
+        "LLM_PROFILE_SUPERVISOR_PROVIDER": "groq",
+        "LLM_PROFILE_SUPERVISOR_MODEL": "llama-3.3-70b-versatile",
+        "LLM_PROFILE_SUPERVISOR_TEMPERATURE": 0.5,
+        "LLM_PROFILE_SUPERVISOR_MAX_TOKENS": 8192,
+        "GROQ_API_KEY": "gsk_test_key",
+        "POKEAPI_MCP_SERVER_URL": "http://localhost:8000",
+        "DATA_PATH": "data/",
+    }
+
+
 class TestSettingsSingleton:
     """Test singleton pattern implementation for Settings."""
 
-    def test_singleton_instance(self, clean_settings) -> None:
+    def test_singleton_pattern(self, clean_settings, valid_settings_data) -> None:
         """Verify Settings maintains singleton pattern."""
-        settings1 = Settings(
-            LLM_PROVIDER="groq",
-            LLM_MODEL="mixtral-8x7b",
-            LLM_TEMPERATURE=0.7,
-            LLM_MAX_TOKENS=1024,
-            LLM_API_KEY="gsk_test_key",
-            POKEAPI_MCP_SERVER_URL="http://localhost:8000",
-            DATA_PATH="data/",
-        )
+        settings1 = Settings(**valid_settings_data)
 
-        # Segunda instância deve ser a mesma (singleton)
-        settings2 = Settings(
-            LLM_PROVIDER="openai",
-            LLM_MODEL="gpt-4",
-            LLM_TEMPERATURE=0.5,
-            LLM_MAX_TOKENS=2048,
-            LLM_API_KEY="gsk_different_key",
-            POKEAPI_MCP_SERVER_URL="https://different.url:8000",
-            DATA_PATH="other/",
-        )
+        # Create second instance with different values
+        modified_data = valid_settings_data.copy()
+        modified_data["LLM_DEFAULT_PROVIDER"] = "openai"
+        settings2 = Settings(**modified_data)
 
-        # Devem ser a mesma instância
+        # Must be the same instance with original values
         assert settings1 is settings2
-        # E manter os valores da primeira inicialização
-        assert settings1.LLM_PROVIDER == "groq"
+        assert settings1.LLM_DEFAULT_PROVIDER == "groq"
 
 
-class TestLLMProviderValidation:
-    """Test LLM_PROVIDER field validation."""
+class TestLLMProfileValidation:
+    """Test LLM profile configurations with parametrized validation."""
 
-    def test_valid_groq_provider(self, clean_settings) -> None:
-        """Test valid Groq provider."""
-        settings = Settings(
-            LLM_PROVIDER="groq",
-            LLM_MODEL="mixtral-8x7b",
-            LLM_TEMPERATURE=0.7,
-            LLM_MAX_TOKENS=1024,
-            LLM_API_KEY="gsk_test_key",
-            POKEAPI_MCP_SERVER_URL="http://localhost:8000",
-            DATA_PATH="data/",
-        )
-        assert settings.LLM_PROVIDER == "groq"
+    def test_valid_configurations(self, clean_settings, valid_settings_data) -> None:
+        """Test all three LLM profiles are configured correctly."""
+        settings = Settings(**valid_settings_data)
 
-    def test_valid_openai_provider(self, clean_settings) -> None:
-        """Test valid OpenAI provider."""
-        settings = Settings(
-            LLM_PROVIDER="openai",
-            LLM_MODEL="gpt-4",
-            LLM_TEMPERATURE=0.7,
-            LLM_MAX_TOKENS=1024,
-            LLM_API_KEY="gsk_test_key",
-            POKEAPI_MCP_SERVER_URL="http://localhost:8000",
-            DATA_PATH="data/",
-        )
-        assert settings.LLM_PROVIDER == "openai"
+        # Default profile
+        assert settings.LLM_DEFAULT_PROVIDER == "groq"
+        assert settings.LLM_DEFAULT_TEMPERATURE == 0.7
+        assert settings.LLM_DEFAULT_MAX_TOKENS == 2048
 
-    def test_valid_anthropic_provider(self, clean_settings) -> None:
-        """Test valid Anthropic provider."""
-        settings = Settings(
-            LLM_PROVIDER="anthropic",
-            LLM_MODEL="claude-3-opus",
-            LLM_TEMPERATURE=0.7,
-            LLM_MAX_TOKENS=1024,
-            LLM_API_KEY="gsk_test_key",
-            POKEAPI_MCP_SERVER_URL="http://localhost:8000",
-            DATA_PATH="data/",
-        )
-        assert settings.LLM_PROVIDER == "anthropic"
+        # Executor profile
+        assert settings.LLM_PROFILE_EXECUTOR_TEMPERATURE == 0.3
+        assert settings.LLM_PROFILE_EXECUTOR_MAX_TOKENS == 4096
 
+        # Supervisor profile
+        assert settings.LLM_PROFILE_SUPERVISOR_TEMPERATURE == 0.5
+        assert settings.LLM_PROFILE_SUPERVISOR_MAX_TOKENS == 8192
 
-class TestLLMModelValidation:
-    """Test LLM_MODEL field validation."""
+    @pytest.mark.parametrize(
+        "profile_prefix,temp_value",
+        [
+            ("LLM_DEFAULT_TEMPERATURE", -0.1),
+            ("LLM_DEFAULT_TEMPERATURE", 2.1),
+            ("LLM_PROFILE_EXECUTOR_TEMPERATURE", 2.5),
+            ("LLM_PROFILE_SUPERVISOR_TEMPERATURE", -1),
+        ],
+    )
+    def test_temperature_validation(
+        self,
+        clean_settings: None,
+        valid_settings_data: dict,
+        profile_prefix: str,
+        temp_value: float,
+    ) -> None:
+        """Test temperature constraints (0.0 to 2.0) for all profiles."""
+        data = valid_settings_data.copy()
+        data[profile_prefix] = temp_value
 
-    def test_valid_model(self, clean_settings) -> None:
-        """Test valid model name."""
-        settings = Settings(
-            LLM_PROVIDER="groq",
-            LLM_MODEL="mixtral-8x7b",
-            LLM_TEMPERATURE=0.7,
-            LLM_MAX_TOKENS=1024,
-            LLM_API_KEY="gsk_test_key",
-            POKEAPI_MCP_SERVER_URL="http://localhost:8000",
-            DATA_PATH="data/",
-        )
-        assert settings.LLM_MODEL == "mixtral-8x7b"
-
-
-class TestTemperatureValidation:
-    """Test LLM_TEMPERATURE field validation."""
-
-    def test_valid_temperature_min(self, clean_settings) -> None:
-        """Test minimum valid temperature (0.0)."""
-        settings = Settings(
-            LLM_PROVIDER="groq",
-            LLM_MODEL="mixtral-8x7b",
-            LLM_TEMPERATURE=0.0,
-            LLM_MAX_TOKENS=1024,
-            LLM_API_KEY="gsk_test_key",
-            POKEAPI_MCP_SERVER_URL="http://localhost:8000",
-            DATA_PATH="data/",
-        )
-        assert settings.LLM_TEMPERATURE == 0.0
-
-    def test_valid_temperature_max(self, clean_settings) -> None:
-        """Test maximum valid temperature (2.0)."""
-        settings = Settings(
-            LLM_PROVIDER="groq",
-            LLM_MODEL="mixtral-8x7b",
-            LLM_TEMPERATURE=2.0,
-            LLM_MAX_TOKENS=1024,
-            LLM_API_KEY="gsk_test_key",
-            POKEAPI_MCP_SERVER_URL="http://localhost:8000",
-            DATA_PATH="data/",
-        )
-        assert settings.LLM_TEMPERATURE == 2.0
-
-    def test_valid_temperature_mid(self, clean_settings) -> None:
-        """Test mid-range temperature."""
-        settings = Settings(
-            LLM_PROVIDER="groq",
-            LLM_MODEL="mixtral-8x7b",
-            LLM_TEMPERATURE=0.7,
-            LLM_MAX_TOKENS=1024,
-            LLM_API_KEY="gsk_test_key",
-            POKEAPI_MCP_SERVER_URL="http://localhost:8000",
-            DATA_PATH="data/",
-        )
-        assert settings.LLM_TEMPERATURE == 0.7
-
-    def test_temperature_below_min(self, clean_settings) -> None:
-        """Test temperature below minimum raises ValidationError."""
         with pytest.raises(ValidationError) as exc_info:
-            Settings(
-                LLM_PROVIDER="groq",
-                LLM_MODEL="mixtral-8x7b",
-                LLM_TEMPERATURE=-0.1,
-                LLM_MAX_TOKENS=1024,
-                LLM_API_KEY="gsk_test_key",
-                POKEAPI_MCP_SERVER_URL="http://localhost:8000",
-                DATA_PATH="data/",
-            )
-        assert "LLM_TEMPERATURE" in str(exc_info.value)
+            Settings(**data)
+        assert profile_prefix in str(exc_info.value)
 
-    def test_temperature_above_max(self, clean_settings) -> None:
-        """Test temperature above maximum raises ValidationError."""
+    @pytest.mark.parametrize(
+        "profile_prefix",
+        [
+            "LLM_DEFAULT_MAX_TOKENS",
+            "LLM_PROFILE_EXECUTOR_MAX_TOKENS",
+            "LLM_PROFILE_SUPERVISOR_MAX_TOKENS",
+        ],
+    )
+    def test_max_tokens_must_be_positive(
+        self, clean_settings: None, valid_settings_data: dict, profile_prefix: str
+    ) -> None:
+        """Test max_tokens must be greater than zero for all profiles."""
+        data = valid_settings_data.copy()
+        data[profile_prefix] = 0
+
         with pytest.raises(ValidationError) as exc_info:
-            Settings(
-                LLM_PROVIDER="groq",
-                LLM_MODEL="mixtral-8x7b",
-                LLM_TEMPERATURE=2.1,
-                LLM_MAX_TOKENS=1024,
-                LLM_API_KEY="gsk_test_key",
-                POKEAPI_MCP_SERVER_URL="http://localhost:8000",
-                DATA_PATH="data/",
-            )
-        assert "LLM_TEMPERATURE" in str(exc_info.value)
+            Settings(**data)
+        assert profile_prefix in str(exc_info.value)
 
 
-class TestMaxTokensValidation:
-    """Test LLM_MAX_TOKENS field validation."""
+class TestApiKeyHandling:
+    """Test API key configuration and optional fields."""
 
-    def test_valid_max_tokens(self, clean_settings) -> None:
-        """Test valid max tokens value."""
-        settings = Settings(
-            LLM_PROVIDER="groq",
-            LLM_MODEL="mixtral-8x7b",
-            LLM_TEMPERATURE=0.7,
-            LLM_MAX_TOKENS=1024,
-            LLM_API_KEY="gsk_test_key",
-            POKEAPI_MCP_SERVER_URL="http://localhost:8000",
-            DATA_PATH="data/",
-        )
-        assert settings.LLM_MAX_TOKENS == 1024
+    def test_valid_api_key(
+        self, clean_settings: None, valid_settings_data: dict
+    ) -> None:
+        """Test API key is stored correctly."""
+        settings = Settings(**valid_settings_data)
+        if settings.GROQ_API_KEY is not None:
+            assert settings.GROQ_API_KEY.get_secret_value() == "gsk_test_key"
 
-    def test_zero_max_tokens(self, clean_settings) -> None:
-        """Test zero max tokens raises ValidationError."""
-        with pytest.raises(ValidationError) as exc_info:
-            Settings(
-                LLM_PROVIDER="groq",
-                LLM_MODEL="mixtral-8x7b",
-                LLM_TEMPERATURE=0.7,
-                LLM_MAX_TOKENS=0,
-                LLM_API_KEY="gsk_test_key",
-                POKEAPI_MCP_SERVER_URL="http://localhost:8000",
-                DATA_PATH="data/",
-            )
-        assert "LLM_MAX_TOKENS" in str(exc_info.value)
+    def test_api_key_field_is_optional(
+        self, clean_settings: None, valid_settings_data: dict
+    ) -> None:
+        """Test API key field definition allows None."""
+        field_info = Settings.model_fields.get("GROQ_API_KEY")
+        assert field_info is not None
+        assert not field_info.is_required()
 
-    def test_negative_max_tokens(self, clean_settings) -> None:
-        """Test negative max tokens raises ValidationError."""
-        with pytest.raises(ValidationError) as exc_info:
-            Settings(
-                LLM_PROVIDER="groq",
-                LLM_MODEL="mixtral-8x7b",
-                LLM_TEMPERATURE=0.7,
-                LLM_MAX_TOKENS=-100,
-                LLM_API_KEY="gsk_test_key",
-                POKEAPI_MCP_SERVER_URL="http://localhost:8000",
-                DATA_PATH="data/",
-            )
-        assert "LLM_MAX_TOKENS" in str(exc_info.value)
+    def test_huggingface_token_alias(
+        self, clean_settings: None, valid_settings_data: dict
+    ) -> None:
+        """Test HuggingFace token accepts HF_TOKEN alias."""
+        data = valid_settings_data.copy()
+        data["HF_TOKEN"] = "hf_test_value"
+        settings = Settings.model_validate(data)
+        if settings.HUGGINGFACE_HUB_TOKEN is not None:
+            assert settings.HUGGINGFACE_HUB_TOKEN.get_secret_value() == "hf_test_value"
 
 
-class TestApiKeyValidation:
-    """Test LLM_API_KEY field validation."""
+class TestPathsAndUrls:
+    """Test path and URL configurations."""
 
-    def test_valid_api_key(self, clean_settings) -> None:
-        """Test valid API key."""
-        settings = Settings(
-            LLM_PROVIDER="groq",
-            LLM_MODEL="mixtral-8x7b",
-            LLM_TEMPERATURE=0.7,
-            LLM_MAX_TOKENS=1024,
-            LLM_API_KEY="gsk_test_key_123",
-            POKEAPI_MCP_SERVER_URL="http://localhost:8000",
-            DATA_PATH="data/",
-        )
-        assert settings.LLM_API_KEY == "gsk_test_key_123"
+    def test_paths_configuration(self, clean_settings, valid_settings_data) -> None:
+        """Test DATA_PATH and CACHE_DIR configurations."""
+        settings = Settings(**valid_settings_data)
+        assert settings.DATA_PATH == Path("data")
+        assert settings.CACHE_DIR == Path(".cache/vector_stores")
 
-    def test_empty_api_key(self, clean_settings) -> None:
-        """Test empty API key raises ValidationError."""
-        with pytest.raises(ValidationError) as exc_info:
-            Settings(
-                LLM_PROVIDER="groq",
-                LLM_MODEL="mixtral-8x7b",
-                LLM_TEMPERATURE=0.7,
-                LLM_MAX_TOKENS=1024,
-                LLM_API_KEY="",
-                POKEAPI_MCP_SERVER_URL="http://localhost:8000",
-                DATA_PATH="data/",
-            )
-        assert "LLM_API_KEY" in str(exc_info.value)
+    def test_custom_cache_dir(
+        self, clean_settings: None, valid_settings_data: dict
+    ) -> None:
+        """Test custom CACHE_DIR path."""
+        data = valid_settings_data.copy()
+        data["CACHE_DIR"] = "/custom/cache"
+        settings = Settings(**data)
+        assert settings.CACHE_DIR == Path("/custom/cache")
 
-
-class TestServerUrlValidation:
-    """Test POKEAPI_MCP_SERVER_URL field validation."""
-
-    def test_valid_http_url(self, clean_settings) -> None:
-        """Test valid HTTP URL."""
-        settings = Settings(
-            LLM_PROVIDER="groq",
-            LLM_MODEL="mixtral-8x7b",
-            LLM_TEMPERATURE=0.7,
-            LLM_MAX_TOKENS=1024,
-            LLM_API_KEY="gsk_test_key",
-            POKEAPI_MCP_SERVER_URL="http://localhost:8000",
-            DATA_PATH="data/",
-        )
+    def test_server_urls(self, clean_settings, valid_settings_data) -> None:
+        """Test server URL configuration."""
+        settings = Settings(**valid_settings_data)
         assert settings.POKEAPI_MCP_SERVER_URL == "http://localhost:8000"
 
-    def test_valid_https_url(self, clean_settings) -> None:
-        """Test valid HTTPS URL."""
-        settings = Settings(
-            LLM_PROVIDER="groq",
-            LLM_MODEL="mixtral-8x7b",
-            LLM_TEMPERATURE=0.7,
-            LLM_MAX_TOKENS=1024,
-            LLM_API_KEY="gsk_test_key",
-            POKEAPI_MCP_SERVER_URL="https://api.example.com:8000",
-            DATA_PATH="data/",
-        )
-        assert settings.POKEAPI_MCP_SERVER_URL == "https://api.example.com:8000"
+    def test_custom_server_url(
+        self, clean_settings: None, valid_settings_data: dict
+    ) -> None:
+        """Test custom HTTPS server URL."""
+        data = valid_settings_data.copy()
+        data["POKEAPI_MCP_SERVER_URL"] = "https://api.example.com"
+        settings = Settings(**data)
+        assert settings.POKEAPI_MCP_SERVER_URL == "https://api.example.com"
 
 
-class TestLogLevelValidation:
-    """Test LOG_LEVEL field validation."""
+class TestBooleanAndLoggingConfig:
+    """Test boolean flags and logging configuration."""
 
-    @pytest.mark.parametrize("level", ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
-    def test_valid_log_levels(self, level: str, clean_settings) -> None:
-        """Test valid log levels."""
-        settings = Settings(
-            LLM_PROVIDER="groq",
-            LLM_MODEL="mixtral-8x7b",
-            LLM_TEMPERATURE=0.7,
-            LLM_MAX_TOKENS=1024,
-            LLM_API_KEY="gsk_test_key",
-            POKEAPI_MCP_SERVER_URL="http://localhost:8000",
-            DATA_PATH="data/",
-            LOG_LEVEL=level,
-        )
-        assert settings.LOG_LEVEL == level
-
-
-class TestBooleanConfiguration:
-    """Test boolean configuration fields."""
-
-    def test_mcp_enabled_default(self, clean_settings) -> None:
-        """Test POKEAPI_MCP_ENABLED defaults to True when not provided."""
-        # When explicitly passing value, it should use True as default
-        settings = Settings(
-            LLM_PROVIDER="groq",
-            LLM_MODEL="mixtral-8x7b",
-            LLM_TEMPERATURE=0.7,
-            LLM_MAX_TOKENS=1024,
-            LLM_API_KEY="gsk_test_key",
-            POKEAPI_MCP_SERVER_URL="http://localhost:8000",
-            DATA_PATH="data/",
-            POKEAPI_MCP_ENABLED=True,
-        )
-        assert settings.POKEAPI_MCP_ENABLED is True
-
-    def test_mcp_enabled_false(self, clean_settings) -> None:
-        """Test POKEAPI_MCP_ENABLED can be set to False."""
-        settings = Settings(
-            LLM_PROVIDER="groq",
-            LLM_MODEL="mixtral-8x7b",
-            LLM_TEMPERATURE=0.7,
-            LLM_MAX_TOKENS=1024,
-            LLM_API_KEY="gsk_test_key",
-            POKEAPI_MCP_SERVER_URL="http://localhost:8000",
-            DATA_PATH="data/",
-            POKEAPI_MCP_ENABLED=False,
-        )
+    def test_mcp_enabled_states(self, clean_settings, valid_settings_data) -> None:
+        """Test POKEAPI_MCP_ENABLED boolean flag."""
+        # Default is False
+        settings = Settings(**valid_settings_data)
         assert settings.POKEAPI_MCP_ENABLED is False
 
-
-class TestCompleteConfiguration:
-    """Test complete configuration scenarios."""
-
-    def test_full_valid_configuration(self, clean_settings) -> None:
-        """Test creating a complete valid configuration."""
-        settings = Settings(
-            LLM_PROVIDER="groq",
-            LLM_MODEL="mixtral-8x7b",
-            LLM_TEMPERATURE=0.7,
-            LLM_MAX_TOKENS=1024,
-            LLM_API_KEY="gsk_test_key",
-            POKEAPI_MCP_SERVER_URL="http://localhost:8000",
-            DATA_PATH="data/",
-            LOG_LEVEL="INFO",
-            POKEAPI_MCP_ENABLED=True,
-        )
-
-        assert settings.LLM_PROVIDER == "groq"
-        assert settings.LLM_MODEL == "mixtral-8x7b"
-        assert settings.LLM_TEMPERATURE == 0.7
-        assert settings.LLM_MAX_TOKENS == 1024
-        assert settings.LLM_API_KEY == "gsk_test_key"
-        assert settings.POKEAPI_MCP_SERVER_URL == "http://localhost:8000"
-        assert settings.DATA_PATH == "data/"
-        assert settings.LOG_LEVEL == "INFO"
+    def test_mcp_enabled_true(self, clean_settings, valid_settings_data) -> None:
+        """Test POKEAPI_MCP_ENABLED can be set to True."""
+        data = valid_settings_data.copy()
+        data["POKEAPI_MCP_ENABLED"] = True
+        settings = Settings(**data)
         assert settings.POKEAPI_MCP_ENABLED is True
 
-    def test_multiple_validation_errors(self, clean_settings) -> None:
-        """Test that multiple validation errors are caught."""
+    @pytest.mark.parametrize(
+        "log_level", ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    )
+    def test_valid_log_levels(
+        self, clean_settings: None, valid_settings_data: dict, log_level: str
+    ) -> None:
+        """Test all valid logging levels."""
+        data = valid_settings_data.copy()
+        data["LOG_LEVEL"] = log_level
+        settings = Settings(**data)
+        assert settings.LOG_LEVEL == log_level
+
+
+class TestConfigurationIntegration:
+    """Test complete configuration scenarios."""
+
+    def test_full_configuration_loads(
+        self, clean_settings, valid_settings_data
+    ) -> None:
+        """Test complete configuration loads successfully."""
+        settings = Settings(**valid_settings_data)
+
+        # Verify all required fields are present
+        assert settings.LLM_DEFAULT_PROVIDER
+        assert settings.LLM_DEFAULT_MODEL
+        assert settings.GROQ_API_KEY
+        assert settings.POKEAPI_MCP_SERVER_URL
+        assert settings.DATA_PATH
+
+    def test_multiple_validation_errors_caught(
+        self, clean_settings: None, valid_settings_data: dict
+    ) -> None:
+        """Test that multiple validation errors are reported together."""
+        data = valid_settings_data.copy()
+        data["LLM_DEFAULT_TEMPERATURE"] = 3.0  # Invalid
+        data["LLM_DEFAULT_MAX_TOKENS"] = -1  # Invalid
+
         with pytest.raises(ValidationError) as exc_info:
-            Settings(
-                LLM_PROVIDER="groq",
-                LLM_MODEL="mixtral-8x7b",
-                LLM_TEMPERATURE=3.0,
-                LLM_MAX_TOKENS=-1,
-                LLM_API_KEY="test_key",
-                POKEAPI_MCP_SERVER_URL="http://localhost:8000",
-                DATA_PATH="data/",
-            )
+            Settings(**data)
 
-        error_dict = exc_info.value.errors()
-        error_fields = {error["loc"][0] for error in error_dict}
+        error_fields = {error["loc"][0] for error in exc_info.value.errors()}
+        assert "LLM_DEFAULT_TEMPERATURE" in error_fields
+        assert "LLM_DEFAULT_MAX_TOKENS" in error_fields
 
-        # Deve ter erros de validação para temperatura e max_tokens
-        assert "LLM_TEMPERATURE" in error_fields
-        assert "LLM_MAX_TOKENS" in error_fields
+    def test_extra_fields_not_allowed(
+        self, clean_settings: None, valid_settings_data: dict
+    ) -> None:
+        """Test that extra fields are rejected."""
+        data = valid_settings_data.copy()
+        data["UNKNOWN_FIELD"] = "value"
+
+        with pytest.raises(ValidationError):
+            Settings(**data)

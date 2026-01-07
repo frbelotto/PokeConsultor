@@ -1,43 +1,90 @@
-"""AI Agent for Pokemon consulting."""
+from __future__ import annotations
 
-from pokeconsultor.llm.base import LLM
-from pokeconsultor.models import LLMRequest
+from typing import Any
+
+from langchain.chat_models import BaseChatModel, init_chat_model
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from pydantic import BaseModel, ConfigDict, Field
+
+from pokeconsultor.llm.base import LLMProfile
+from pokeconsultor.models.llm import LLMRequest
+from pokeconsultor.services.memory import ConversationMemory
 
 
-class AIAgent:
-    """Simple AI Agent with dependency injection for LLM models.
+class AIAgent(BaseModel):
+    """Thin wrapper that instantiates a LangChain chat model with memory."""
 
-    The agent accepts any object that conforms to the LLM protocol,
-    making it easy to swap different language models without inheritance.
-    """
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
-    def __init__(self, llm: LLM) -> None:
-        """Initialize the AI Agent with an LLM instance.
+    llm: LLMProfile
+    memory: ConversationMemory = Field(default_factory=ConversationMemory)
+    agent: BaseChatModel | None = None
+
+    def model_post_init(self, _context: Any) -> None:
+        """Instantiate the chat model passing the provider API key when available."""
+        api_key = self.llm.api_key.get_secret_value() if self.llm.api_key else ""
+
+        init_kwargs: dict[str, Any] = {
+            "temperature": self.llm.temperature,
+            "max_tokens": self.llm.max_tokens,
+        }
+
+        if api_key:
+            init_kwargs["api_key"] = api_key
+
+        self.agent = init_chat_model(
+            f"{self.llm.provider}:{self.llm.model}",
+            **init_kwargs,
+        )
+
+    def respond(self, request: LLMRequest) -> str:
+        """Generate a chat response using memory context and optional RAG.
 
         Args:
-            llm: Any object that conforms to the LLM protocol (has generate method).
-        """
-        self.llm = llm
-
-    def consult(
-        self,
-        prompt: str,
-        context: str | None = None,
-        system_message: str | None = None,
-    ) -> str:
-        """Process a user query and return a response from the LLM.
-
-        Args:
-            prompt: The user's question or request.
-            context: Optional background information or context.
-            system_message: Optional system instruction for the model.
+            request: LLMRequest containing prompt, system message, and optional context
 
         Returns:
-            The response from the language model.
+            The assistant's response as a string.
+
+        Includes previous conversation history from memory to provide context
+        for multi-turn interactions.
         """
-        request = LLMRequest(
-            prompt=prompt,
-            context=context,
-            system_message=system_message,
+
+        assert self.agent is not None, "Chat model not initialized"
+
+        messages: list[BaseMessage] = []
+
+        if request.system_message:
+            sys_content = request.system_message
+            if request.context:
+                sys_content = f"Context:\n{request.context}\n\nInstructions:\n{request.system_message}"
+            messages.append(SystemMessage(content=sys_content))
+        elif request.context:
+            messages.append(SystemMessage(content=f"Context:\n{request.context}"))
+
+        # Include conversation history from memory
+        for msg in self.memory.get_messages():
+            if msg.role.value == "user":
+                messages.append(HumanMessage(content=msg.content))
+            elif msg.role.value == "assistant":
+                messages.append(AIMessage(content=msg.content))
+            elif msg.role.value == "system":
+                messages.append(SystemMessage(content=msg.content))
+
+        # Add current user prompt
+        messages.append(HumanMessage(content=request.prompt))
+
+        response = self.agent.invoke(messages)
+
+        # Persist conversation
+        self.memory.add_user_message(request.prompt)
+
+        # Ensure response.content is converted to string
+        response_text = (
+            str(response.content)
+            if not isinstance(response.content, str)
+            else response.content
         )
-        return self.llm.generate(request)
+        self.memory.add_assistant_message(response_text)
+
+        return response_text

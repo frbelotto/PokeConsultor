@@ -6,15 +6,18 @@ readme = "README.md"
 authors = [
     { name = "Fábio Radicchi Belotto", email = "fabio_belotto@hotmail.com" }
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.11, <3.14"
 dependencies = [
-    "langchain>=0.3.0",
-    "langchain-core>=0.3.0",
-    "langchain-community>=0.4.0",
-    "langchain-groq>=0.2.0",
-    "pydantic>=2.12.0",
+    "faiss-cpu>=1.13.2",
+    "langchain>=1.2.1",
+    "langchain-community>=0.4.1",
+    "langchain-groq>=1.1.1",
+    "langchain-huggingface>=0.1.0",
+    "pdfplumber>=0.11.4",
+    "pydantic>=2.12.5",
     "pydantic-settings>=2.12.0",
-    "email-validator>=2.3.0",
+    "sentence-transformers>=3.0.1",
+    "numpy>=1.26.0",
 ]
 
 [tool.setuptools]
@@ -27,6 +30,8 @@ pokeconsultor = []
 dev = [
     "pytest>=9.0.0",
     "pytest-cov>=7.0.0",
+    "pytest-mock>=3.14.0",
+    "faker>=33.0.0",
     "ruff>=0.14.0",
     "mypy>=1.19.0",
     "taskipy>=1.14.0",
@@ -39,4 +44,17 @@ run = "python -m main"
 test = "pytest tests/ -v"
 test-fast = "pytest tests/ -v -m 'not slow and not integration'"
 test-all = "pytest tests/ -v --tb=short"
+type-check = "mypy pokeconsultor/"
+
+[tool.mypy]
+python_version = "3.13"
+explicit_package_bases = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_any_unimported = false
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
 
