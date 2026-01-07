@@ -57,6 +57,9 @@ jobs:
           mkdir -p logs
           uv sync --dev 2>&1 | tee logs/uv_sync.txt
 
+      - name: Install package in editable mode
+        run: uv pip install -e .
+
       - name: Run test suite (with report)
         shell: bash
         run: |
