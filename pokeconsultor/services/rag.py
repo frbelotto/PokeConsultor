@@ -144,7 +144,7 @@ class RAGService(BaseModel):
             return
 
         logger.info(f"Creating embeddings for {len(documents)} documents...")
-        
+
         # Safety: filter out any chunks that are too large for the embedding model
         # Most sentence-transformers models have 512 token limit
         max_embedding_size = 100000  # chars (safety: ~25k tokens)
@@ -161,8 +161,10 @@ class RAGService(BaseModel):
             for idx in oversized:
                 doc_text = str(documents[idx])
                 documents[idx] = doc_text[:max_embedding_size]
-                logger.warning("Truncated chunk %d to %d chars", idx, max_embedding_size)
-        
+                logger.warning(
+                    "Truncated chunk %d to %d chars", idx, max_embedding_size
+                )
+
         self.vector_store = FAISS.from_texts(documents, self._embeddings)
 
         if self.use_cache:
@@ -281,14 +283,14 @@ class RAGService(BaseModel):
             # Safety check: use both token counting and character length
             doc_size = self._count_tokens(doc) if self.use_token_counting else len(doc)
             doc_chars = len(doc)
-            
+
             # For very small documents, keep as-is
             # But add safety: if doc has >10k chars, always chunk it (safety against token counting errors)
             max_char_threshold = 10000
             if doc_size <= self.chunk_size and doc_chars <= max_char_threshold:
                 chunked.append(doc)
                 continue
-            
+
             # Log warning for very large documents
             if doc_chars > 50000:
                 logger.warning(
@@ -308,8 +310,12 @@ class RAGService(BaseModel):
                 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
                 splitter = RecursiveCharacterTextSplitter(
-                    chunk_size=self.chunk_size if not self.use_token_counting else self.chunk_size * 4,
-                    chunk_overlap=self.chunk_overlap if not self.use_token_counting else self.chunk_overlap * 4,
+                    chunk_size=self.chunk_size
+                    if not self.use_token_counting
+                    else self.chunk_size * 4,
+                    chunk_overlap=self.chunk_overlap
+                    if not self.use_token_counting
+                    else self.chunk_overlap * 4,
                 )
                 chunked.extend(splitter.split_text(doc))
                 continue
@@ -335,7 +341,7 @@ class RAGService(BaseModel):
                         chunked.append(" ".join(current_chunk))
                         current_chunk = []
                         current_size = 0
-                    
+
                     logger.debug(
                         "Oversized sentence (%d tokens/chars), splitting with character chunker",
                         sent_size,
@@ -344,8 +350,12 @@ class RAGService(BaseModel):
                     from langchain_text_splitters import RecursiveCharacterTextSplitter
 
                     splitter = RecursiveCharacterTextSplitter(
-                        chunk_size=self.chunk_size if not self.use_token_counting else self.chunk_size * 4,
-                        chunk_overlap=self.chunk_overlap if not self.use_token_counting else self.chunk_overlap * 4,
+                        chunk_size=self.chunk_size
+                        if not self.use_token_counting
+                        else self.chunk_size * 4,
+                        chunk_overlap=self.chunk_overlap
+                        if not self.use_token_counting
+                        else self.chunk_overlap * 4,
                     )
                     chunked.extend(splitter.split_text(sentence))
                     continue
