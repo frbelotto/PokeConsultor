@@ -38,10 +38,30 @@ def main() -> None:
 
     # System message for consistent AI behavior
     system_message = (
-        # "Você é um especialista em Pokémon. Responda APENAS baseado nas "
-        "Você é um agente de IA prestando consultoria sobre todos os assuntos que localizar em sua base de conhecimentos. "
-        "Responda APENAS com base nas informações fornecidas no contexto. Se a informação não estiver no contexto, diga que não tem dados sobre o assunto. "
-        "Seja claro, objetivo e amigável."
+        "## ROLE E COMPORTAMENTO\n"
+        "Você é um agente de consultoria que responde perguntas sobre assuntos em sua base de conhecimentos.\n"
+        "\n"
+        "## INSTRUÇÃO CRÍTICA - USO DE CONTEXTO\n"
+        "⚠️ RESPONDA EXCLUSIVAMENTE COM BASE NO CONTEXTO FORNECIDO.\n"
+        "- NUNCA use conhecimento externo ou alucinações.\n"
+        "- NUNCA invente informações que não estejam no contexto ou tente adivinhar.\n"
+        "- Se houver como demonstrar as respostas, faça-o com referências diretas ao contexto.\n"
+        "- Se o contexto está vazio, você não tem dados para responder.\n"
+        "\n"
+        "## O QUE FAZER QUANDO NÃO HOUVER CONTEXTO\n"
+        "Se a informação solicitada NÃO estiver no contexto fornecido:\n"
+        "1. Seja honesto e direto: 'Não tenho essa info aqui.'\n"
+        "2. Nunca tente adivinhar ou usar conhecimento geral.\n"
+        "3. Mantenha o tom casual mesmo ao recusar.\n"
+        "\n"
+        "## ESTILO DE RESPOSTA\n"
+        "- Seja claro, amigável e estruturado.\n"
+        "- Responda de forma completa quando apropriado, evitando omissões.\n"
+        "- Estruture a saída com seções curtas (ex.: Objetivo, Contexto Relevante, Resposta, Exemplos, Limitações).\n"
+        "- Sempre que usar o contexto, cite explicitamente os trechos relevantes (ex.: '[Resultado 2]').\n"
+        "- Prefira listas com bullets e/ou passos numerados quando útil.\n"
+        "- Inclua exemplos práticos ou comparações quando isso ajudar.\n"
+        "- Termine com um resumo rápido e, quando fizer sentido, próximos passos.\n"
     )
 
     # Interactive mode
@@ -53,11 +73,13 @@ def main() -> None:
     print("   • 'sair' ou 'exit' para encerrar")
     print("   • 'limpar' ou 'clear' para limpar o console")
     print("   • 'debug' para ativar/desativar modo debug")
+    print("   • 'rag' para ativar/desativar uso de contexto RAG")
     print("   • 'memória' ou 'memory' para ver histórico de conversas")
     print("   • 'limpar_memória' ou 'clear_memory' para apagar histórico")
     print("   • Ctrl+C para interromper\n")
 
     debug_mode = False
+    rag_enabled = True
 
     while True:
         try:
@@ -78,6 +100,13 @@ def main() -> None:
                 debug_mode = not debug_mode
                 status = "ativado" if debug_mode else "desativado"
                 print(f"\n🐛 Modo debug {status}\n")
+                continue
+
+            # Check for RAG toggle
+            if query.lower() == "rag":
+                rag_enabled = not rag_enabled
+                status = "ativado" if rag_enabled else "desativado"
+                print(f"\n📚 RAG {status}\n")
                 continue
 
             # Check for memory commands
@@ -141,61 +170,73 @@ def main() -> None:
             print(f"🔍 QUERY: {query}")
             print("=" * 60)
 
-            # Show RAG retrieval in debug mode
+            # RAG retrieval (always executed when enabled; debug shows detalhes)
             retrieved_context: str | None = None
-            if debug_mode:
-                print("\n" + "🔍" * 30)
-                print("[RAG] 📚 Recuperando documentos relevantes da base de dados...")
-                print("🔍" * 30)
-                print("-" * 60)
+            rag_results: list[tuple[str, float]] = []
+            rag_consulted = rag_enabled
+            if rag_enabled:
                 try:
-                    results = rag_service.retrieve(query, k=3)
-                    print(
-                        f"[RAG] ✓ Encontrados {len(results)} resultados (k=3, rerank_k=3)\n"
-                    )
+                    rag_results = rag_service.retrieve(query)
+                    retrieved_context = rag_service.format_results(rag_results)
 
-                    # Show all retrieved results before formatting
-                    print("[RAG] 📋 DOCUMENTOS RECUPERADOS DA BASE:")
-                    print("=" * 60)
-                    for i, (doc, score) in enumerate(results, 1):
-                        doc_preview = doc[:200] + "..." if len(doc) > 200 else doc
-                        doc_tokens = rag_service._count_tokens(doc)  # noqa: SLF001
-                        relevance_bar = "█" * int(score * 10) + "░" * (
-                            10 - int(score * 10)
-                        )
-                        print(f"\n  📄 Documento {i}")
-                        print(
-                            f"     Score: {score:.4f} [{relevance_bar}] ~{doc_tokens} tokens"
-                        )
-                        print(f"     └─ {doc_preview}\n")
-
-                    retrieved_context = rag_service.format_results(results)
-
-                    # Show what was actually sent to LLM
-                    print("\n" + "=" * 60)
-                    print("[LLM] 📤 CONTEXTO PREPARADO PARA ENVIAR À LLM:")
-                    print("=" * 60)
+                    # Identify which results were actually sent to LLM
+                    used_indices: set[int] = set()
                     if retrieved_context:
-                        included = [
-                            part.split("\n", 1)[0]
-                            for part in retrieved_context.split("\n\n")
-                            if part.startswith("[Resultado ")
-                        ]
-                        approx_tokens = rag_service._count_tokens(retrieved_context)  # noqa: SLF001
-                        print(
-                            f"\n✓ Incluídos: {len(included)} de {len(results)} documentos "
-                            f"({', '.join(included)})"
-                        )
-                        print(f"✓ Tokens utilizados: ~{approx_tokens} \n")
-                        print("-" * 60)
-                        print(retrieved_context)
-                        print("-" * 60)
-                    else:
-                        print("(nenhum contexto gerado)")
-                    print("=" * 60 + "\n")
+                        for line in retrieved_context.splitlines():
+                            if line.startswith("[Resultado "):
+                                try:
+                                    idx_str = line.split("[Resultado ", 1)[1].split(
+                                        "]", 1
+                                    )[0]
+                                    used_indices.add(int(idx_str))
+                                except (IndexError, ValueError):
+                                    continue
+
+                    if debug_mode:
+                        print("\n" + "🔍" * 30)
+                        print("[RAG] 📚 PIPELINE DE RECUPERAÇÃO E CONTEXTO")
+                        print("🔍" * 30)
+
+                        # Stage 1: All retrieved results
+                        print("\n[STAGE 1] 📋 DOCUMENTOS RECUPERADOS (retrieve):")
+                        print("=" * 80)
+                        print(f"Total recuperado: {len(rag_results)} documentos\n")
+                        for i, (doc, score) in enumerate(rag_results, 1):
+                            doc_preview = doc[:160] + "..." if len(doc) > 160 else doc
+                            doc_chars = len(doc)
+                            relevance_bar = "█" * int(score * 10) + "░" * (
+                                10 - int(score * 10)
+                            )
+                            in_context_flag = " ✓ ENVIADO" if i in used_indices else ""
+                            print(
+                                f"  [{i:2d}] Score: {score:.4f} [{relevance_bar}] {doc_chars:5d} chars{in_context_flag}"
+                            )
+                            print(f"       └─ {doc_preview}\n")
+
+                        # Stage 2: What was sent to LLM
+                        print("\n[STAGE 2] 📤 CONTEXTO ENVIADO À LLM (format_results):")
+                        print("=" * 80)
+                        if retrieved_context:
+                            sent_count = len(used_indices)
+                            sent_chars = len(retrieved_context)
+                            approx_tokens = rag_service._count_tokens(retrieved_context)  # noqa: SLF001
+                            print(
+                                f"Total enviado: {sent_count} de {len(rag_results)} documentos "
+                                f"({sent_chars} chars, ~{approx_tokens} tokens)\n"
+                            )
+                            print("-" * 80)
+                            print(retrieved_context)
+                            print("-" * 80)
+                        else:
+                            print(
+                                "(nenhum contexto gerado - limite de tokens atingido ou sem resultados)"
+                            )
+                        print("=" * 80 + "\n")
+
                 except Exception as e:
                     print(f"⚠️  Erro ao recuperar documentos: {e}")
                     print("-" * 60)
+                    rag_consulted = False
 
             print("\n[AI] 🤖 Gerando resposta...\n")
             request = LLMRequest(
@@ -205,10 +246,29 @@ def main() -> None:
             )
             response = ai_agent.respond(request)
 
+            # RAG usage summary (always show)
+            consulted_chars = (
+                sum(len(doc) for doc, _score in rag_results)
+                if rag_consulted and rag_results
+                else 0
+            )
+            sent_chars = len(retrieved_context) if retrieved_context else 0
+            rag_sent = bool(retrieved_context)
+
             print("\n" + "=" * 60)
             print("✨ RESPOSTA DA IA")
             print("=" * 60)
             print(f"\n{response}\n")
+
+            print("[RAG] 📊 Uso nesta consulta:")
+            print(f"   • Consultado: {'Sim' if rag_consulted else 'Não'}")
+            print(
+                f"   • Documentos recuperados: {len(rag_results) if rag_consulted else 0} | Tamanho bruto: {consulted_chars} chars"
+            )
+            print(
+                f"   • Contexto enviado à LLM: {'Sim' if rag_sent else 'Não'} | Tamanho enviado: {sent_chars} chars"
+            )
+            print("-" * 60)
 
             # Show additional debug info about the response
             if debug_mode:

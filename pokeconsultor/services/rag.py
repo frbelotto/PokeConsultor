@@ -39,8 +39,24 @@ class RAGService(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
     data_path: Path = Field(default=settings.DATA_PATH)
-    chunk_size: int = Field(default=1200)
-    chunk_overlap: int = Field(default=250)
+    chunk_size: int = Field(
+        default=500,
+        gt=0,
+        description="Maximum chunk size in tokens (when use_token_counting=True) or characters",
+    )
+    chunk_overlap: int = Field(
+        default=50,
+        ge=0,
+        description="Overlap size in tokens (when use_token_counting=True) or characters",
+    )
+    chunking_strategy: str = Field(
+        default="sentence",
+        description="Chunking strategy: 'character' (fixed size) or 'sentence' (semantic boundaries)",
+    )
+    use_token_counting: bool = Field(
+        default=True,
+        description="Use token counting for chunk sizes instead of character counting",
+    )
     use_cache: bool = Field(default=True)
     embedding_model: str = Field(
         default="sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
@@ -48,6 +64,16 @@ class RAGService(BaseModel):
     llm_model: str | None = Field(
         default=None,
         description="LLM model name to calculate context window. If None, uses LLM_DEFAULT_MODEL from settings.",
+    )
+    retrieve_k: int = Field(
+        default=20,
+        gt=0,
+        description="Default number of documents to retrieve from the vector store",
+    )
+    rerank_k: int | None = Field(
+        default=5,
+        ge=0,
+        description="Default number of documents to keep after reranking. None disables reranking.",
     )
     vector_store: FAISS | None = None
 
@@ -118,6 +144,25 @@ class RAGService(BaseModel):
             return
 
         logger.info(f"Creating embeddings for {len(documents)} documents...")
+        
+        # Safety: filter out any chunks that are too large for the embedding model
+        # Most sentence-transformers models have 512 token limit
+        max_embedding_size = 100000  # chars (safety: ~25k tokens)
+        oversized = [i for i, d in enumerate(documents) if len(d) > max_embedding_size]
+        if oversized:
+            logger.error(
+                "Found %d chunks exceeding max size (%d chars). First oversized: %d chars. "
+                "This indicates chunking failed. Please check chunking configuration.",
+                len(oversized),
+                max_embedding_size,
+                len(documents[oversized[0]]),
+            )
+            # Truncate oversized chunks to prevent crash
+            for idx in oversized:
+                doc_text = str(documents[idx])
+                documents[idx] = doc_text[:max_embedding_size]
+                logger.warning("Truncated chunk %d to %d chars", idx, max_embedding_size)
+        
         self.vector_store = FAISS.from_texts(documents, self._embeddings)
 
         if self.use_cache:
@@ -159,13 +204,23 @@ class RAGService(BaseModel):
     def _chunk_documents(self, documents: list[str]) -> list[str]:
         """Split large documents into smaller overlapping chunks.
 
+        Supports two strategies:
+        - 'character': Fixed-size chunking (traditional approach)
+        - 'sentence': Semantic chunking respecting sentence boundaries
+
         This prevents very large files (e.g., PDFs) from producing single huge
         retrieval results that exceed the LLM context window.
         """
         if not documents:
             return []
 
-        # Lazy import to avoid slow loading on module import
+        if self.chunking_strategy == "sentence":
+            return self._chunk_by_sentences(documents)
+        else:
+            return self._chunk_by_characters(documents)
+
+    def _chunk_by_characters(self, documents: list[str]) -> list[str]:
+        """Traditional fixed-size chunking using RecursiveCharacterTextSplitter."""
         from langchain_text_splitters import RecursiveCharacterTextSplitter
 
         splitter = RecursiveCharacterTextSplitter(
@@ -184,7 +239,7 @@ class RAGService(BaseModel):
 
         if len(chunked) != len(documents):
             logger.info(
-                "Chunked %d raw documents into %d chunks (chunk_size=%d, overlap=%d)",
+                "Chunked %d raw documents into %d chunks (strategy=character, chunk_size=%d, overlap=%d)",
                 len(documents),
                 len(chunked),
                 self.chunk_size,
@@ -192,6 +247,167 @@ class RAGService(BaseModel):
             )
 
         return chunked
+
+    def _chunk_by_sentences(self, documents: list[str]) -> list[str]:
+        """Semantic chunking that respects sentence boundaries.
+
+        Splits text into sentences using nltk, then groups sentences into
+        chunks respecting the configured size limit. This produces more
+        coherent chunks compared to fixed-size splitting.
+        """
+        try:
+            import nltk
+            from nltk.tokenize import sent_tokenize
+
+            # Ensure nltk punkt tokenizer is available
+            try:
+                nltk.data.find("tokenizers/punkt")
+            except LookupError:
+                logger.info("Downloading nltk punkt tokenizer...")
+                nltk.download("punkt", quiet=True)
+                nltk.download("punkt_tab", quiet=True)  # For newer nltk versions
+        except ImportError:
+            logger.warning(
+                "nltk not available for sentence chunking, falling back to character chunking"
+            )
+            return self._chunk_by_characters(documents)
+
+        chunked: list[str] = []
+
+        for doc in documents:
+            if not doc or not doc.strip():
+                continue
+
+            # Safety check: use both token counting and character length
+            doc_size = self._count_tokens(doc) if self.use_token_counting else len(doc)
+            doc_chars = len(doc)
+            
+            # For very small documents, keep as-is
+            # But add safety: if doc has >10k chars, always chunk it (safety against token counting errors)
+            max_char_threshold = 10000
+            if doc_size <= self.chunk_size and doc_chars <= max_char_threshold:
+                chunked.append(doc)
+                continue
+            
+            # Log warning for very large documents
+            if doc_chars > 50000:
+                logger.warning(
+                    "Processing very large document (%d chars, ~%d tokens). This may take time.",
+                    doc_chars,
+                    doc_size,
+                )
+
+            # Split into sentences
+            sentences = sent_tokenize(doc, language="portuguese")
+            if not sentences:
+                logger.warning(
+                    "sent_tokenize returned empty for document (%d chars). Using character-based fallback.",
+                    len(doc),
+                )
+                # Fallback to character chunking for this document
+                from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+                splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=self.chunk_size if not self.use_token_counting else self.chunk_size * 4,
+                    chunk_overlap=self.chunk_overlap if not self.use_token_counting else self.chunk_overlap * 4,
+                )
+                chunked.extend(splitter.split_text(doc))
+                continue
+
+            # Group sentences into chunks
+            current_chunk: list[str] = []
+            current_size = 0
+
+            for sentence in sentences:
+                sentence = sentence.strip()
+                if not sentence:
+                    continue
+
+                sent_size = (
+                    self._count_tokens(sentence)
+                    if self.use_token_counting
+                    else len(sentence)
+                )
+
+                # If single sentence exceeds chunk_size, split it using character-based chunking
+                if sent_size > self.chunk_size:
+                    if current_chunk:
+                        chunked.append(" ".join(current_chunk))
+                        current_chunk = []
+                        current_size = 0
+                    
+                    logger.debug(
+                        "Oversized sentence (%d tokens/chars), splitting with character chunker",
+                        sent_size,
+                    )
+                    # Split oversized sentence
+                    from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+                    splitter = RecursiveCharacterTextSplitter(
+                        chunk_size=self.chunk_size if not self.use_token_counting else self.chunk_size * 4,
+                        chunk_overlap=self.chunk_overlap if not self.use_token_counting else self.chunk_overlap * 4,
+                    )
+                    chunked.extend(splitter.split_text(sentence))
+                    continue
+
+                # Check if adding this sentence would exceed the limit
+                if current_chunk and (current_size + sent_size > self.chunk_size):
+                    chunked.append(" ".join(current_chunk))
+                    # Start new chunk with overlap: keep last few sentences
+                    overlap_sentences = self._get_overlap_sentences(
+                        current_chunk, self.chunk_overlap
+                    )
+                    current_chunk = overlap_sentences
+                    current_size = sum(
+                        self._count_tokens(s) if self.use_token_counting else len(s)
+                        for s in current_chunk
+                    )
+
+                current_chunk.append(sentence)
+                current_size += sent_size
+
+            # Add remaining sentences
+            if current_chunk:
+                chunked.append(" ".join(current_chunk))
+
+        if len(chunked) != len(documents):
+            unit = "tokens" if self.use_token_counting else "chars"
+            logger.info(
+                "Chunked %d raw documents into %d chunks (strategy=sentence, chunk_size=%d %s, overlap=%d %s)",
+                len(documents),
+                len(chunked),
+                self.chunk_size,
+                unit,
+                self.chunk_overlap,
+                unit,
+            )
+
+        return chunked
+
+    def _get_overlap_sentences(
+        self, sentences: list[str], overlap_budget: int
+    ) -> list[str]:
+        """Get the last few sentences that fit within overlap budget."""
+        if not sentences or overlap_budget <= 0:
+            return []
+
+        overlap: list[str] = []
+        overlap_size = 0
+
+        # Work backwards from the end
+        for sentence in reversed(sentences):
+            sent_size = (
+                self._count_tokens(sentence)
+                if self.use_token_counting
+                else len(sentence)
+            )
+            if overlap_size + sent_size <= overlap_budget:
+                overlap.insert(0, sentence)
+                overlap_size += sent_size
+            else:
+                break
+
+        return overlap
 
     def _generate_cache_key(self) -> str:
         """Generate a unique cache key based on data source content.
@@ -218,7 +434,9 @@ class RAGService(BaseModel):
             hasher.update(relative.encode())
             hasher.update(file_path.read_bytes())
 
-        hasher.update(f"{self.chunk_size}:{self.chunk_overlap}".encode())
+        hasher.update(
+            f"{self.chunk_size}:{self.chunk_overlap}:{self.chunking_strategy}:{self.use_token_counting}".encode()
+        )
         hasher.update(self.embedding_model.encode())
         return hasher.hexdigest()[:16]
 
@@ -423,20 +641,26 @@ class RAGService(BaseModel):
             return text[:approx_chars]
 
     def retrieve(
-        self, query: str, k: int = 7, rerank_k: int | None = 3
+        self,
+        query: str,
+        k: int | None = None,
+        rerank_k: int | None = None,
     ) -> list[tuple[str, float]]:
         """Retrieve relevant documents with optional lightweight reranking.
 
         Args:
             query: User query to search for relevant documents.
-            k: Number of documents to retrieve from the vector store.
+            k: Number of documents to retrieve from the vector store. If None, uses self.retrieve_k.
             rerank_k: When provided, reranks the top-k results using cosine similarity
-                on fresh embeddings and returns only the top ``rerank_k``. Set to None
-                to disable reranking.
+                on fresh embeddings and returns only the top ``rerank_k``. If not provided,
+                uses self.rerank_k (which defaults to None to disable reranking).
 
         Returns:
             List of tuples (document_content, relevance_score).
         """
+        k = k if k is not None else self.retrieve_k
+        if rerank_k is None:
+            rerank_k = self.rerank_k
         if not self.vector_store:
             logger.warning("Vector store not initialized")
             return []
