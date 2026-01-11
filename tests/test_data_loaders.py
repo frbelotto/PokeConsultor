@@ -276,7 +276,9 @@ class TestCSVLoader:
         # Should only load the 2 valid rows, skipping the empty one
         assert len(documents) == 2
 
-    def test_load_malformed_csv_continues_processing(self, temp_malformed_csv: Path) -> None:
+    def test_load_malformed_csv_continues_processing(
+        self, temp_malformed_csv: Path
+    ) -> None:
         """Test that malformed rows are skipped but processing continues."""
         loader = CSVLoader()
         documents = loader.load(temp_malformed_csv)

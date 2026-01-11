@@ -12,9 +12,9 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from pokeconsultor.config import settings
 from pokeconsultor.services.rag.embeddings import EmbeddingService
 from pokeconsultor.services.rag.formatting.tokenizer import TokenizerService
+from pokeconsultor.services.rag.search.executor import HybridExecutor
 from pokeconsultor.services.rag.search.lexical import LexicalSearcher
 from pokeconsultor.services.rag.search.vector import VectorSearcher
-from pokeconsultor.services.rag.search.executor import HybridExecutor
 
 
 class RAGService(BaseModel):
@@ -99,7 +99,9 @@ class RAGService(BaseModel):
         # Searchers
         self._vector_searcher = VectorSearcher(self._embedding_service)
         self._lexical_searcher = LexicalSearcher()
-        self._lexical_searcher.build_from_vector_store(self._embedding_service.vector_store)
+        self._lexical_searcher.build_from_vector_store(
+            self._embedding_service.vector_store
+        )
 
         # Hybrid executor as standard
         self._retriever_service = HybridExecutor(
