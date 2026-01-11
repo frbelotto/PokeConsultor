@@ -17,16 +17,16 @@ class PDFLoader(DataLoader):
         return file_path.suffix.lower() == ".pdf"
 
     def load(self, file_path: Path) -> list[str]:
-        """Load PDF data as a single document.
+        """Load PDF data with each page as a separate document.
 
-        Extracts text from all pages in the PDF and combines them into
-        a single document string. Page breaks are preserved for clarity.
+        Extracts text from each page in the PDF and returns them as
+        individual documents for better chunking control.
 
         Args:
             file_path: Path to the PDF file.
 
         Returns:
-            List containing a single document string with all PDF content.
+            List of document strings, one per page with content.
 
         Raises:
             FileNotFoundError: If the file does not exist.
@@ -36,7 +36,7 @@ class PDFLoader(DataLoader):
             raise FileNotFoundError(f"PDF file not found: {file_path}")
 
         try:
-            pages_text = []
+            documents: list[str] = []
 
             with pdfplumber.open(file_path) as pdf:
                 total_pages = len(pdf.pages)
@@ -47,21 +47,21 @@ class PDFLoader(DataLoader):
                 for page_num, page in enumerate(pdf.pages, 1):
                     text = page.extract_text()
 
-                    if text:
-                        # Preserve page information
-                        pages_text.append(f"[Page {page_num}]\n{text}")
+                    if text and text.strip():
+                        # Each page is a separate document with page reference
+                        documents.append(f"[Page {page_num}] {text}")
                     else:
                         logger.debug(f"No text extracted from page {page_num}")
 
-            if not pages_text:
+            if not documents:
                 logger.warning(f"No text content found in PDF: {file_path}")
                 return []
 
-            # Combine all pages into a single document
-            full_document = "\n\n".join(pages_text)
-            logger.info(f"Loaded PDF with {total_pages} pages: {file_path.name}")
+            logger.info(
+                f"Loaded PDF with {total_pages} pages → {len(documents)} documents: {file_path.name}"
+            )
 
-            return [full_document]
+            return documents
 
         except Exception as e:
             logger.error(f"Error reading PDF file {file_path}: {e}")

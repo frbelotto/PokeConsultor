@@ -2,9 +2,9 @@ import sys
 
 from pokeconsultor.agents.ai_agent import AIAgent
 from pokeconsultor.config import settings
-from pokeconsultor.llm.base import LLMProfiles, llm_profiles
+from pokeconsultor.llm.base import llm_profiles
 from pokeconsultor.models.llm import LLMRequest
-from pokeconsultor.services.rag import RAGService
+from pokeconsultor.services.rag.service import RAGService
 
 
 def main() -> None:
@@ -219,7 +219,7 @@ def main() -> None:
                         if retrieved_context:
                             sent_count = len(used_indices)
                             sent_chars = len(retrieved_context)
-                            approx_tokens = rag_service._count_tokens(retrieved_context)  # noqa: SLF001
+                            approx_tokens = rag_service.count_tokens(retrieved_context)
                             print(
                                 f"Total enviado: {sent_count} de {len(rag_results)} documentos "
                                 f"({sent_chars} chars, ~{approx_tokens} tokens)\n"

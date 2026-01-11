@@ -478,9 +478,9 @@ class TestPDFLoader:
         loader = PDFLoader()
         documents = loader.load(temp_pdf_mock)
 
-        assert len(documents) == 1  # PDF content combined into one document
+        assert len(documents) == 2  # Each page is a separate document
         assert "[Page 1]" in documents[0]
-        assert "[Page 2]" in documents[0]
+        assert "[Page 2]" in documents[1]
 
     def test_load_nonexistent_pdf_raises_error(self) -> None:
         """Test that loading non-existent PDF raises FileNotFoundError."""

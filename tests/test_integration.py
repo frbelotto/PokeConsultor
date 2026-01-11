@@ -133,12 +133,13 @@ def test_main_integration(
     monkeypatch.setattr(main, "RAGService", FakeRAGService, raising=True)
 
     # Stub llm profile resolution to return a simple object
-    def _fake_get_profile(cls: object, name: str) -> object:
+    def _fake_get_profile(instance: object, name: str) -> object:  # noqa: D401 - succinct
         assert name == "default"
         return {"profile": "default"}
 
+    # Patch the method on the class of the pydantic instance to avoid __setattr__ restrictions
     monkeypatch.setattr(
-        main.LLMProfiles, "get_profile", classmethod(_fake_get_profile), raising=True
+        main.llm_profiles.__class__, "get_profile", _fake_get_profile, raising=True
     )
 
     # Provide an input sequence: ask, inspect memory, then exit

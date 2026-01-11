@@ -135,33 +135,59 @@ Once started, the application provides an interactive console where you can ask 
 ```
 pokeconsultor/
 ├── agents/
-│   └── ai_agent.py          # LLM agent with memory
+│   └── ai_agent.py                    # LLM agent with memory
 ├── llm/
-│   └── base.py              # LLM profile management
+│   └── base.py                        # LLM profile management
 ├── models/
-│   └── llm.py               # Data models (LLMRequest, ConversationMessage)
+│   └── llm.py                         # Data models (LLMRequest, ConversationMessage)
 ├── services/
-│   ├── logger.py            # Logging configuration
-│   ├── memory.py            # Conversation memory management
-│   ├── rag.py               # RAG service with FAISS
-│   └── data_loaders/
-│       ├── base.py          # Abstract loader interface
-│       ├── csv_loader.py    # CSV file loader
-│       ├── pdf_loader.py    # PDF file loader
-│       ├── text_loader.py   # Text/Markdown loader
-│       └── factory.py       # Loader factory pattern
-├── config.py                # Application settings
-main.py                      # Entry point
+│   ├── logger.py                      # Logging configuration
+│   ├── memory.py                      # Conversation memory management
+│   ├── data_loaders/
+│   │   ├── base.py                    # Abstract loader interface
+│   │   ├── csv_loader.py              # CSV file loader
+│   │   ├── pdf_loader.py              # PDF file loader
+│   │   ├── text_loader.py             # Text/Markdown loader
+│   │   └── factory.py                 # Loader factory pattern
+│   └── rag/
+│       ├── service.py                 # RAG service orchestration
+│       ├── embeddings.py              # Embedding models management
+│       ├── formatting/
+│       │   ├── context.py             # Context formatting & chunking
+│       │   └── tokenizer.py           # Token counting utilities
+│       └── search/
+│           ├── executor.py            # Search execution engine
+│           ├── lexical.py             # Lexical/BM25 search
+│           └── vector.py              # Vector/semantic search with FAISS
+├── config.py                          # Application settings
+main.py                               # Entry point
 ```
 
 ### Key Components
 
-#### 1. RAG Service (`services/rag.py`)
-- Loads documents from multiple file formats
-- Creates and manages FAISS vector stores
-- Implements semantic search with configurable chunk sizes
-- Handles persistent caching with automatic invalidation
+#### 1. RAG Service (`services/rag/`)
+Modular Retrieval-Augmented Generation system with the following components:
+
+**`service.py` - RAG Service Orchestration**
+- Coordinates document loading and vector store management
+- Executes search queries combining multiple strategies
+- Manages FAISS vector stores with automatic cache invalidation
 - Dynamically adjusts context based on LLM model capabilities
+
+**`embeddings.py` - Embedding Models Management**
+- Loads and manages embedding models
+- Supports multiple embedding providers
+- Caches embeddings for performance
+
+**`formatting/` - Context Processing**
+- `context.py`: Chunking strategies and context formatting
+- `tokenizer.py`: Token counting utilities for context window management
+
+**`search/` - Search Execution**
+- `executor.py`: Coordinates different search strategies
+- `lexical.py`: BM25/lexical search for exact matches
+- `vector.py`: Semantic search using FAISS vector stores
+- Hybrid search combining both approaches for better results
 
 #### 2. AI Agent (`agents/ai_agent.py`)
 - Wraps LangChain chat models
@@ -185,6 +211,10 @@ main.py                      # Entry point
 - Maintains conversation history
 - Automatic history trimming
 - Formatted output for LLM APIs
+
+#### 6. Logging (`services/logger.py`)
+- Centralized logging configuration
+- Structured logging across all modules
 
 ## 🔧 Configuration
 
