@@ -206,7 +206,7 @@ class EmbeddingService(BaseModel):
         chunked: list[str] = []
 
         # Define separators to prioritize: paragraphs -> sentences -> words
-        separators = ["\n\n", "\n", "(?<=\. )", "(?<=\! )", "(?<=\? )", " ", ""]
+        separators = ["\n\n", "\n", r"(?<=\. )", r"(?<=\! )", r"(?<=\? )", " ", ""]
         
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=self.chunk_size,
