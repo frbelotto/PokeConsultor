@@ -35,7 +35,7 @@ def _format_compact(
     unique_results: List[Tuple[str, float]] = []
 
     for content, score in results:
-        content_hash = hash(content[:100].strip().lower())
+        content_hash = hash(content.strip().lower())
         if content_hash not in seen_hashes:
             seen_hashes.add(content_hash)
             unique_results.append((content, score))

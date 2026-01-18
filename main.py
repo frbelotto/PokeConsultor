@@ -5,6 +5,7 @@ from pokeconsultor.config import settings
 from pokeconsultor.llm.base import llm_profiles
 from pokeconsultor.models.llm import LLMRequest
 from pokeconsultor.services.rag.service import RAGService
+import re
 
 
 def main() -> None:
@@ -56,6 +57,7 @@ def main() -> None:
         "• Extrair detalhes e contexto relevante para resposta completa\n"
         "• Referencial cruzado dentro do contexto fornecido\n"
         "• Estruturar a resposta de forma clara e acessível\n"
+        "• Cite explicitamente as fontes (ex: '[1]', '[2]')\n"
         "\n"
         "## 🎯 ESTRATÉGIA DE RESPOSTA\n"
         "1️⃣ Receba a pergunta\n"
@@ -63,7 +65,7 @@ def main() -> None:
         "3️⃣ SE encontrar → Sintetize UMA RESPOSTA COMPLETA usando TUDO do contexto relevante\n"
         "   • Forneça a resposta direta\n"
         "   • Inclua TODOS os detalhes, nuances e contexto relacionado\n"
-        "   • Cite explicitamente as fontes (ex: '[Documento 1]', '[Página 241]')\n"
+
         "4️⃣ SE NÃO encontrar → Responda APENAS: 'Não tenho essa informação no contexto fornecido.'\n"
         "\n"
         "## EXEMPLOS CRÍTICOS\n"
@@ -219,13 +221,12 @@ def main() -> None:
                     used_indices: set[int] = set()
                     if retrieved_context:
                         for line in retrieved_context.splitlines():
-                            if line.startswith("[Resultado "):
+                            # Support both [N] (compact) and [Resultado N] (verbose)
+                            match = re.match(r"^\[(?:Resultado )?(\d+)\]", line)
+                            if match:
                                 try:
-                                    idx_str = line.split("[Resultado ", 1)[1].split(
-                                        "]", 1
-                                    )[0]
-                                    used_indices.add(int(idx_str))
-                                except (IndexError, ValueError):
+                                    used_indices.add(int(match.group(1)))
+                                except ValueError:
                                     continue
 
                     if debug_mode:
