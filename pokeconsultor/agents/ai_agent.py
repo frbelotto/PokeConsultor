@@ -55,9 +55,17 @@ class AIAgent(BaseModel):
         messages: list[BaseMessage] = []
 
         if request.system_message:
+            # Instructions FIRST to ensure LLM adheres to them,
+            # then context so LLM has material to work with
             sys_content = request.system_message
+            
+            # If no context, explicitly state it to LLM as a safeguard
             if request.context:
-                sys_content = f"Context:\n{request.context}\n\nInstructions:\n{request.system_message}"
+                sys_content = f"{request.system_message}\n\n## CONTEXTO RELEVANTE\n{request.context}"
+            else:
+                # Enforce "no context = no guessing" by being explicit
+                sys_content = f"{request.system_message}\n\n⚠️ AVISO: Você NÃO TEM CONTEXTO para esta pergunta. Você DEVE responder: 'Não tenho essa informação no contexto fornecido.'"
+                
             messages.append(SystemMessage(content=sys_content))
         elif request.context:
             messages.append(SystemMessage(content=f"Context:\n{request.context}"))

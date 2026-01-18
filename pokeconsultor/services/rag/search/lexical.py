@@ -95,6 +95,11 @@ class LexicalSearcher:
         """Extract documents from a LangChain docstore-compatible vector store."""
         contents: list[str] = []
         try:
+            if vector_store is None:
+                logger.warning("Vector store is None, building empty lexical index")
+                self.index.build(contents)
+                return
+            
             docstore = vector_store.docstore
             idx_map = vector_store.index_to_docstore_id
             for _idx, doc_id in idx_map.items():

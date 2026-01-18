@@ -111,9 +111,8 @@ class EmbeddingService(BaseModel):
 
     def _load_and_index_data(self) -> None:
         """Load documents and create vector store for similarity search."""
-        if not self.data_path.exists():
-            logger.error("Data path not found: %s", self.data_path)
-            raise FileNotFoundError(f"Data path not found: {self.data_path}")
+        # Ensure data directory exists
+        self.data_path.mkdir(parents=True, exist_ok=True)
 
         if self.use_cache and self._load_from_cache():
             return
@@ -367,7 +366,7 @@ class EmbeddingService(BaseModel):
         """Generate unique cache key based on data and config."""
         files_hash = self._calculate_files_hash(self.data_path)
         if not files_hash:
-            raise FileNotFoundError(f"No supported files in {self.data_path}")
+            logger.info("No supported files in %s", self.data_path)
 
         # Add config to hash for uniqueness
         config_str = f"{self.chunk_size}:{self.chunk_overlap}:{self.chunking_strategy}:{self.use_token_counting}:{self.embedding_model}"
@@ -392,7 +391,8 @@ class EmbeddingService(BaseModel):
             logger.info("Found %d supported files in %s", len(files), self.data_path)
             return files
 
-        raise FileNotFoundError(f"Data path not found: {self.data_path}")
+        logger.info("Data path not found: %s", self.data_path)
+
 
     def _load_from_cache(self) -> bool:
         """Load vector store from disk cache."""
