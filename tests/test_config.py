@@ -11,12 +11,21 @@ from pokeconsultor.config import Settings
 @pytest.fixture
 def clean_settings() -> None:
     """Reset singleton state before and after each test."""
+    import os
+
+    # Clear environment variables that might interfere
+    old_cache_dir = os.environ.pop("CACHE_DIR", None)
+
     if hasattr(Settings, "_instance"):
         delattr(Settings, "_instance")
     if hasattr(Settings, "_initialized"):
         Settings._initialized = False
 
     yield
+
+    # Restore environment variables
+    if old_cache_dir is not None:
+        os.environ["CACHE_DIR"] = old_cache_dir
 
     if hasattr(Settings, "_instance"):
         delattr(Settings, "_instance")
