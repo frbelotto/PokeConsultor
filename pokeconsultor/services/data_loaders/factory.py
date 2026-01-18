@@ -83,3 +83,24 @@ class LoaderFactory:
         """
         file_path = Path(file_path)
         return any(loader_class.supports(file_path) for loader_class in cls._loaders)
+
+    @classmethod
+    def get_supported_extensions(cls) -> set[str]:
+        """Get set of supported file extensions (lowercase with dot).
+
+        Returns:
+            Set of supported extensions like {'.csv', '.txt', '.pdf'}
+        """
+        # Map loader classes to their common extensions
+        extension_map = {
+            CSVLoader: {".csv"},
+            TextLoader: {".txt", ".md", ".markdown"},
+            PDFLoader: {".pdf"},
+        }
+
+        extensions = set()
+        for loader_class in cls._loaders:
+            if loader_class in extension_map:
+                extensions.update(extension_map[loader_class])
+
+        return extensions

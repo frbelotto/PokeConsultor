@@ -392,7 +392,7 @@ class EmbeddingService(BaseModel):
             return files
 
         logger.info("Data path not found: %s", self.data_path)
-
+        return []
 
     def _load_from_cache(self) -> bool:
         """Load vector store from disk cache."""

@@ -248,6 +248,97 @@ Default: `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`
 
 This model provides excellent multilingual support. You can change it by modifying the `embedding_model` parameter in `RAGService`.
 
+### Incremental Embedding
+
+The system supports **intelligent incremental embedding** with file-level tracking. It automatically detects file changes and decides whether to rebuild the index or reuse cached embeddings.
+
+#### How It Works
+
+1. **Manifest Tracking**: On first run, RAGService creates a manifest file (`.cache/manifest.json`) that tracks:
+   - Which files have been embedded
+   - SHA256 hash of each file (for change detection)
+   - Cache location for each file's embeddings
+
+2. **Smart Detection**: On subsequent runs, RAGService:
+   - Scans your data directory
+   - Compares file hashes against manifest
+   - Identifies: NEW files, MODIFIED files, DELETED files, UNCHANGED files
+
+3. **Intelligent Strategy**:
+   - **No changes**: Load from cache immediately (seconds)
+   - **Minor changes** (< 30%): Skip embedding, use cached data
+   - **Major changes** (≥ 30%): Rebuild entire index
+   - Threshold: 30% (configurable in future if needed)
+
+#### Example Workflow
+
+```
+First Run (cold start):
+  1. Scan data/ directory → finds 10 files
+  2. No manifest exists → embed all files
+  3. Create .cache/manifest.json with file hashes
+  4. Cache embeddings in .cache/vector_stores/
+
+Second Run (1 file changed):
+  1. Load .cache/manifest.json → sees 10 files
+  2. Check current files → 10 files exist
+  3. Hash comparison → 1 file modified, 9 unchanged
+  4. Change rate = 10% < 30% threshold → SKIP EMBEDDING
+  5. Load from cache (instant) ✨
+
+Third Run (5 new files added):
+  1. Load .cache/manifest.json → sees 10 files
+  2. Check current files → 15 files exist
+  3. Status detection → 5 NEW files
+  4. Change rate = 33% > 30% threshold → REBUILD
+  5. Embed all 15 files and update manifest
+```
+
+#### Manifest File Structure
+
+```json
+{
+  "version": "1",
+  "last_updated": 1705507200,
+  "files": {
+    "pokemon.csv": {
+      "relative_path": "pokemon.csv",
+      "file_hash": "abc123def456...",
+      "cache_key": "b3f2a1c5...",
+      "timestamp": 1705507200
+    },
+    "trainers.txt": {
+      "relative_path": "trainers.txt",
+      "file_hash": "xyz789uvw012...",
+      "cache_key": "b3f2a1c5...",
+      "timestamp": 1705507200
+    }
+  }
+}
+```
+
+#### Key Benefits
+
+- ⚡ **Speed**: Unchanged files load from cache in milliseconds
+- 🎯 **Smart**: Automatically decides REBUILD vs SKIP based on change rate
+- 💾 **Efficient**: Avoids unnecessary reprocessing
+- 🔍 **Transparent**: Simple JSON manifest for debugging
+- 📊 **Auditable**: All decisions logged for transparency
+
+#### Under the Hood
+
+The implementation is elegantly simple:
+
+- **EmbeddingService**: Unchanged - loads, chunks, and embeds documents
+- **ManifestManager**: Tracks file state and provides change detection
+- **RAGService**: Orchestrates the workflow - detects changes and decides strategy
+
+This clean separation means:
+- No invasive changes to embedding logic
+- Easy to test and maintain
+- Can extend with per-file embedding later if needed
+- Fully backward compatible
+
 ## 🧪 Testing
 
 Run tests using pytest:
