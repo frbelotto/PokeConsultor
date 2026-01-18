@@ -164,7 +164,7 @@ class TestPathsAndUrls:
         """Test DATA_PATH and CACHE_DIR configurations."""
         settings = Settings(**valid_settings_data)
         assert settings.DATA_PATH == Path("data")
-        assert settings.CACHE_DIR == Path(".cache/vector_stores")
+        assert settings.CACHE_DIR == Path(".cache")
 
     def test_custom_cache_dir(
         self, clean_settings: None, valid_settings_data: dict

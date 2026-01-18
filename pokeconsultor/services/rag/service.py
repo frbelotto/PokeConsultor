@@ -14,7 +14,6 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from pokeconsultor.config import settings
 from pokeconsultor.services.data_loaders.factory import LoaderFactory
 from pokeconsultor.services.logger import logger
-from pokeconsultor.services.rag import embeddings
 from pokeconsultor.services.rag.embeddings import EmbeddingService
 from pokeconsultor.services.rag.formatting.tokenizer import TokenizerService
 from pokeconsultor.services.rag.search.executor import HybridExecutor
@@ -196,14 +195,14 @@ class RAGService(BaseModel):
     def _load_and_chunk_single_file(self, file_path: Path) -> list[str]:
         """Load and chunk a single file.
         
+        Delegates chunking to EmbeddingService to ensure consistent parameters.
+        
         Args:
             file_path: Path to the file to load and chunk
             
         Returns:
             List of text chunks
         """
-        from langchain_text_splitters import RecursiveCharacterTextSplitter
-        
         try:
             # Load the file
             loader = LoaderFactory.get_loader(file_path)
@@ -213,25 +212,8 @@ class RAGService(BaseModel):
                 logger.warning("No content loaded from %s", file_path.name)
                 return []
             
-            # Use the same chunking parameters as EmbeddingService
-            # Default chunk_size=512, chunk_overlap=50
-            chunk_size = 512
-            chunk_overlap = 50
-            
-            # Apply chunking with RecursiveCharacterTextSplitter
-            splitter = RecursiveCharacterTextSplitter(
-                chunk_size=chunk_size * 4,  # Character-based chunking
-                chunk_overlap=chunk_overlap * 4,
-            )
-            
-            chunked: list[str] = []
-            for doc in raw_docs:
-                if not doc:
-                    continue
-                if len(doc) <= chunk_size * 4:
-                    chunked.append(doc)
-                else:
-                    chunked.extend(splitter.split_text(doc))
+            # Delegate chunking to EmbeddingService (single source of truth)
+            chunked = self._embedding_service.chunk_documents(raw_docs)
             
             logger.info(
                 "Loaded and chunked %s: %d chunks from %d raw docs",

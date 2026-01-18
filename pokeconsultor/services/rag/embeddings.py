@@ -4,8 +4,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from blingfire import text_to_sentences
-from langchain_chroma import Chroma
+
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 import torch
@@ -28,7 +27,7 @@ class EmbeddingService(BaseModel):
 
     data_path: Path
     chunk_size: int = Field(
-        default=350,
+        default=450,
         gt=0,
         description="Target chunk size in tokens (optimal: 300-400 for semantic search)",
     )
@@ -75,10 +74,17 @@ class EmbeddingService(BaseModel):
 
 
     def configure_vector_store(self) -> Chroma:
-        client = chromadb.PersistentClient(path= settings.CACHE_DIR)
+        # User requested: .cache/chromadb
+        persist_path = settings.CACHE_DIR / "chroma"
+        persist_path.mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"Connecting to ChromaDB at {persist_path}")
+        
+        client = chromadb.PersistentClient(path=str(persist_path))
+        
         vector_store = Chroma(
             client=client,
-            collection_name="collection_name",
+            collection_name=settings.CHROMA_COLLECTION_NAME,
             embedding_function=self._embeddings,
         )
         return vector_store
@@ -120,22 +126,7 @@ class EmbeddingService(BaseModel):
             if meta and "file_hash" in meta:
                 hashes.add(meta["file_hash"])
         return hashes
-
-
-
-    def _create_embeddings_with_progress(self, documents: list[str]) -> None:
-        """Create ChromaDB vector store (embedding all at once)."""
-        logger.info(f"Iniciando embedding de {len(documents)} chunks...")
-        texts = documents
-        metadatas = [{} for _ in documents]
-        self._vector_store = Chroma.from_texts(
-            texts,
-            self._embeddings,
-            metadatas=metadatas,
-            persist_directory=str(settings.CACHE_DIR / "chroma"),
-        )
-        logger.info("Embedding concluído!")
-
+  
     def _load_documents_from_source(self) -> list[str]:
         """Load documents from all supported files in data path."""
         source_files = self._discover_source_files()
@@ -162,8 +153,11 @@ class EmbeddingService(BaseModel):
         )
         return documents
 
-    def _chunk_documents(self, documents: list[str]) -> list[str]:
-        """Split documents into overlapping chunks for better retrieval."""
+    def chunk_documents(self, documents: list[str]) -> list[str]:
+        """Split documents into overlapping chunks for better retrieval.
+        
+        Public method to allow external services to use the same chunking logic.
+        """
         if not documents:
             return []
 
@@ -208,59 +202,25 @@ class EmbeddingService(BaseModel):
         return chunked
 
     def _chunk_by_sentences(self, documents: list[str]) -> list[str]:
-        """Semantic chunking respecting sentence boundaries."""
+        """Semantic chunking using RecursiveCharacterTextSplitter with sentence priorities."""
         chunked: list[str] = []
+
+        # Define separators to prioritize: paragraphs -> sentences -> words
+        separators = ["\n\n", "\n", "(?<=\. )", "(?<=\! )", "(?<=\? )", " ", ""]
+        
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
+            length_function=self._count_size,
+            separators=separators,
+            is_separator_regex=True,
+            keep_separator=True,
+        )
 
         for doc in documents:
             if not doc or not doc.strip():
                 continue
-
-            doc_size = self._count_size(doc)
-
-            # Small docs: keep as-is
-            if doc_size <= self.chunk_size:
-                chunked.append(doc)
-                continue
-
-            sentences = text_to_sentences(doc).split("\n")
-            if not sentences:
-                raise RuntimeError(
-                    f"Sentence tokenization returned no sentences for a document of "
-                    f"length {len(doc)} characters. Consider using character-based "
-                    "chunking instead (e.g., set chunking_strategy='character')."
-                )
-
-            current_chunk: list[str] = []
-            current_size = 0
-
-            for sentence in sentences:
-                sentence = sentence.strip()
-                if not sentence:
-                    continue
-
-                sent_size = self._count_size(sentence)
-
-                # Oversized sentence: split with character chunker
-                if sent_size > self.chunk_size:
-                    if current_chunk:
-                        chunked.append(" ".join(current_chunk))
-                        current_chunk = []
-                        current_size = 0
-                    chunked.extend(self._chunk_by_characters([sentence]))
-                    continue
-
-                # Would exceed limit: save current and start new with overlap
-                if current_chunk and (current_size + sent_size > self.chunk_size):
-                    chunked.append(" ".join(current_chunk))
-                    overlap = self._get_overlap_sentences(current_chunk)
-                    current_chunk = overlap
-                    current_size = sum(self._count_size(s) for s in current_chunk)
-
-                current_chunk.append(sentence)
-                current_size += sent_size
-
-            if current_chunk:
-                chunked.append(" ".join(current_chunk))
+            chunked.extend(splitter.split_text(doc))
 
         if len(chunked) != len(documents):
             logger.info(
@@ -279,23 +239,7 @@ class EmbeddingService(BaseModel):
             return self._tokenizer_service.count_tokens(text)
         return len(text)
 
-    def _get_overlap_sentences(self, sentences: list[str]) -> list[str]:
-        """Get last sentences fitting within overlap budget."""
-        if not sentences or self.chunk_overlap <= 0:
-            return []
 
-        overlap: list[str] = []
-        overlap_size = 0
-
-        for sentence in reversed(sentences):
-            sent_size = self._count_size(sentence)
-            if overlap_size + sent_size <= self.chunk_overlap:
-                overlap.insert(0, sentence)
-                overlap_size += sent_size
-            else:
-                break
-
-        return overlap
 
 
 

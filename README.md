@@ -9,7 +9,7 @@ An AI-powered intelligent consultant system that leverages Retrieval-Augmented G
 
 - **🧠 RAG-Powered Responses**: Combines semantic search with Large Language Models (LLMs) for accurate, context-aware answers
 - **📚 Multi-Format Support**: Load data from CSV, TXT, PDF, Markdown, and other formats
-- **💾 Smart Caching**: Persistent FAISS vector store with automatic cache invalidation
+- **💾 Smart Caching**: Persistent ChromaDB vector store with incremental embedding support
 - **🔄 Conversation Memory**: Maintains multi-turn conversation context
 - **🎯 Multiple LLM Profiles**: Configure different models for various purposes (executor, supervisor, default)
 - **🔌 Provider Agnostic**: Works with Groq, OpenAI, HuggingFace, and other LangChain-supported providers
@@ -67,7 +67,7 @@ LLM_PROFILE_SUPERVISOR_MAX_TOKENS=2000
 
 # Application Settings
 DATA_PATH=data
-CACHE_DIR=.cache/vector_stores
+CACHE_DIR=.cache
 LOG_LEVEL=INFO
 
 # Optional: PokeAPI MCP Server
@@ -158,7 +158,7 @@ pokeconsultor/
 │       └── search/
 │           ├── executor.py            # Search execution engine
 │           ├── lexical.py             # Lexical/BM25 search
-│           └── vector.py              # Vector/semantic search with FAISS
+│           └── vector.py              # Vector/semantic search with ChromaDB
 ├── config.py                          # Application settings
 main.py                               # Entry point
 ```
@@ -171,7 +171,7 @@ Modular Retrieval-Augmented Generation system with the following components:
 **`service.py` - RAG Service Orchestration**
 - Coordinates document loading and vector store management
 - Executes search queries combining multiple strategies
-- Manages FAISS vector stores with automatic cache invalidation
+- Manages ChromaDB vector stores with incremental embedding
 - Dynamically adjusts context based on LLM model capabilities
 
 **`embeddings.py` - Embedding Models Management**
@@ -186,7 +186,7 @@ Modular Retrieval-Augmented Generation system with the following components:
 **`search/` - Search Execution**
 - `executor.py`: Coordinates different search strategies
 - `lexical.py`: BM25/lexical search for exact matches
-- `vector.py`: Semantic search using FAISS vector stores
+- `vector.py`: Semantic search using ChromaDB vector stores
 - Hybrid search combining both approaches for better results
 
 #### 2. AI Agent (`agents/ai_agent.py`)
@@ -250,62 +250,26 @@ This model provides excellent multilingual support. You can change it by modifyi
 
 ### Incremental Embedding
 
-The system supports **intelligent incremental embedding** with file-level tracking using ChromaDB metadata.
+The system supports **efficient incremental embedding** using ChromaDB's metadata filtering.
 
 #### How It Works
 
-1. **ChromaDB Metadata**: On first run, all files are embedded and tracked via ChromaDB's internal metadata.
-2. **Smart Detection**: On subsequent runs, the system:
-   - Scans your data directory
-   - Compares file hashes against those stored in ChromaDB metadata
-   - Identifies: NEW files, MODIFIED files, DELETED files, UNCHANGED files
-3. **Intelligent Strategy**:
-   - **No changes**: Load from ChromaDB immediately (seconds)
-   - **Minor changes** (< 30%): Skip embedding, use cached data
-   - **Major changes** (≥ 30%): Rebuild entire index
-   - Threshold: 30% (configurable in future if needed)
+1. **File Tracking**: Every loaded file is hashed (SHA-256) and associated with its stored embeddings in ChromaDB.
+2. **Change Detection**: On startup, the system:
+   - Scans the `data/` directory.
+   - Calculates current file hashes.
+   - Retrieves existing file hashes from ChromaDB.
+3. **Smart Updates**:
+   - **New Files**: Processed and added to the vector store.
+   - **Modified Files**: Old embeddings are removed, and new content is embedded/added.
+   - **Deleted Files**: Embeddings for files no longer in `data/` are automatically removed.
+   - **Unchanged Files**: Skipped entirely (instant load).
 
-#### Example Workflow
+#### Benefits
 
-```
-First Run (cold start):
-  1. Scan data/ directory → finds 10 files
-  2. All files embedded and tracked in ChromaDB
-
-Second Run (1 file changed):
-  1. ChromaDB metadata → sees 10 files
-  2. Check current files → 10 files exist
-  3. Hash comparison → 1 file modified, 9 unchanged
-  4. Change rate = 10% < 30% threshold → SKIP EMBEDDING
-  5. Load from ChromaDB (instant) ✨
-
-Third Run (5 new files added):
-  1. ChromaDB metadata → sees 10 files
-  2. Check current files → 15 files exist
-  3. Status detection → 5 NEW files
-  4. Change rate = 33% > 30% threshold → REBUILD
-  5. Embed all 15 files and update ChromaDB
-```
-
-#### Key Benefits
-
-- ⚡ **Speed**: Unchanged files load from ChromaDB in milliseconds
-- 🎯 **Smart**: Automatically decides REBUILD vs SKIP based on change rate
-- 💾 **Efficient**: Avoids unnecessary reprocessing
-- 📊 **Auditable**: All decisions logged for transparency
-
-#### Under the Hood
-
-The implementation is elegantly simple:
-
-- **EmbeddingService**: Loads, chunks, and embeds documents, tracking via ChromaDB metadata
-- **RAGService**: Orchestrates the workflow - detects changes and decides strategy
-
-This clean separation means:
-- No invasive changes to embedding logic
-- Easy to test and maintain
-- Can extend with per-file embedding later if needed
-- Fully backward compatible
+- ⚡ **Zero Redundancy**: Only changed content is processed.
+- 🧹 **Self-Cleaning**: Automatically removes data from deleted files.
+- 🚀 **Fast Startup**: Subsequent runs with no changes are nearly instantaneous.
 
 ## 🧪 Testing
 
@@ -344,7 +308,7 @@ uv run task format
 
 1. Place your files in the `data/` directory
 2. The system automatically detects and loads supported formats
-3. Clear cache if needed: delete `.cache/vector_stores/`
+3. Clear cache if needed: delete `.cache/chroma/`
 
 ### Creating Custom Loaders
 
@@ -419,7 +383,7 @@ Year: 2025
 ## 🙏 Acknowledgments
 
 - Built with [LangChain](https://github.com/langchain-ai/langchain) for LLM orchestration
-- Vector storage powered by [FAISS](https://github.com/facebookresearch/faiss)
+- Vector storage powered by [ChromaDB](https://www.trychroma.com/)
 - Embeddings from [Sentence Transformers](https://www.sbert.net/)
 - Dependency management with [uv](https://github.com/astral-sh/uv)
 
