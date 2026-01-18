@@ -76,8 +76,8 @@ class Settings(BaseSettings):
     # ==============================================================#
 
     CACHE_DIR: Path = Field(
-        default=Path(".cache/vector_stores"),
-        description="Path to cache directory for vector stores",
+        default=Path(".cache/chroma"),
+        description="Path to cache directory for ChromaDB vector store",
     )
     DATA_PATH: Path = Field(
         description="Path to data directory containing data source files"

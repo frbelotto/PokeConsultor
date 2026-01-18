@@ -7,6 +7,8 @@ import re
 from dataclasses import dataclass
 from typing import Iterable, List, Tuple, Any
 
+from langchain_chroma import Chroma
+
 from pokeconsultor.services.logger import logger
 
 
@@ -87,26 +89,38 @@ class LexicalSearcher:
 
     def __init__(self) -> None:
         self.index = SimpleLexicalIndex()
+        self.vector_store: Chroma
+        
 
     def build_from_documents(self, documents: Iterable[str]) -> None:
         self.index.build(documents)
 
     def build_from_vector_store(self, vector_store: Any) -> None:
-        """Extract documents from a LangChain docstore-compatible vector store."""
+        """Extract documents from a LangChain or ChromaDB-compatible vector store."""
         contents: list[str] = []
         try:
-            if vector_store is None:
-                logger.warning("Vector store is None, building empty lexical index")
-                self.index.build(contents)
-                return
-            
-            docstore = vector_store.docstore
-            idx_map = vector_store.index_to_docstore_id
-            for _idx, doc_id in idx_map.items():
-                doc = docstore.search(doc_id) if hasattr(docstore, "search") else None
-                if not doc or isinstance(doc, str):
-                    continue
-                contents.append(getattr(doc, "page_content", "") or "")
+
+            # Tenta extrair documentos do ChromaDB ou outros vector stores compatíveis
+            # ChromaDB geralmente retorna um dicionário com a chave 'documents' ou 'metadatas'
+            result = vector_store.get(include=["documents"])
+            if "documents" in result:
+                docs = result["documents"]
+                # docs pode ser uma lista de listas (ChromaDB) ou lista simples
+                if docs and isinstance(docs[0], list):
+                    # Flatten se necessário
+                    for doc_list in docs:
+                        contents.extend(doc_list)
+                else:
+                    contents.extend(docs)
+            elif "metadatas" in result:
+                # Alternativamente, pode-se extrair de metadados se necessário
+                logger.warning("No 'documents' key found, using 'metadatas' as fallback")
+                metadatas = result["metadatas"]
+                for meta in metadatas:
+                    if isinstance(meta, dict) and "content" in meta:
+                        contents.append(meta["content"])
+            else:
+                logger.warning("No 'documents' or 'metadatas' key found in vector store result")
         except Exception as exc:
             logger.exception("Failed building lexical index from vector store: %s", exc)
         self.index.build(contents)
