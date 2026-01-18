@@ -7,6 +7,7 @@ Implements intelligent caching with incremental embedding support through
 """
 import hashlib
 from pathlib import Path
+import threading
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
@@ -118,6 +119,9 @@ class RAGService(BaseModel):
         )
 
         self._load_with_incremental_embedding()
+        
+        # Start background initialization of heavy models
+        threading.Thread(target=self.warmup, daemon=True).start()
 
     @staticmethod
     def calculate_file_hash(file_path: Path) -> str:
@@ -250,6 +254,10 @@ class RAGService(BaseModel):
         return self._retriever_service.format_context(
             results, max_tokens=max_tokens, compact=compact
         )
+
+    def warmup(self) -> None:
+        """Warmup internal services (e.g. load heavy models)."""
+        self._retriever_service.warmup()
 
 
     def count_tokens(self, text: str) -> int:
