@@ -20,7 +20,13 @@ class TestChunkingLogic:
         # The service initializes HuggingFaceEmbeddings and Chroma in model_post_init
         # We can bypass model_post_init logic by mocking the relevant parts if possible,
         # or by patching the heavy imports.
+        # or by patching the heavy imports.
         pass
+
+    @pytest.fixture(autouse=True)
+    def mock_torch(self, mocker):
+        """Mock torch to prevent runtime error from set_num_interop_threads."""
+        return mocker.patch("pokeconsultor.services.rag.embeddings.torch")
 
     def test_chunk_by_sentences_simple(self, mocker, tmp_path):
         """Test simple sentence splitting with regex."""
