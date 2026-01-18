@@ -2,14 +2,19 @@
 
 Unified interface to the RAG subsystem using hybrid retrieval (lexical + vector)
 with rank fusion (RRF) and optional reranking for improved precision.
-"""
 
+Implements intelligent caching with incremental embedding support through
+"""
+import hashlib
 from pathlib import Path
+import threading
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from pokeconsultor.config import settings
+from pokeconsultor.services.data_loaders.factory import LoaderFactory
+from pokeconsultor.services.logger import logger
 from pokeconsultor.services.rag.embeddings import EmbeddingService
 from pokeconsultor.services.rag.formatting.tokenizer import TokenizerService
 from pokeconsultor.services.rag.search.executor import HybridExecutor
@@ -17,20 +22,10 @@ from pokeconsultor.services.rag.search.lexical import LexicalSearcher
 from pokeconsultor.services.rag.search.vector import VectorSearcher
 
 
+
+
 class RAGService(BaseModel):
-    """Unified RAG service with hybrid retrieval as default.
-
-    Provides a simple interface for the complete RAG pipeline:
-    document loading, chunking, embedding, hybrid retrieval, and context formatting.
-
-    Uses the Facade design pattern to simplify access to EmbeddingService,
-    HybridRetrieverService, and TokenizerService components.
-
-    Example:
-        rag = RAGService(data_path=Path("./data"))
-        results = rag.retrieve("What is Pikachu's type?")
-        context = rag.format_results(results)
-    """
+    
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
@@ -87,7 +82,16 @@ class RAGService(BaseModel):
     _tokenizer_service: TokenizerService = PrivateAttr()
 
     def model_post_init(self, __context: Any) -> None:
-        """Initialize internal services after validation."""
+        """Initialize internal services with intelligent caching.
+        
+        Implements incremental embedding workflow:
+        1. Load existing database to see which files were previously embedded
+        2. Scan data_path to find current files
+        3. Detect NEW, MODIFIED, and DELETED files
+        4. Process only changed files
+        5. Load vector stores from cache
+        """
+
         self._tokenizer_service = TokenizerService(llm_model=self.llm_model)
 
         # EmbeddingService with cache setting propagated
@@ -96,12 +100,10 @@ class RAGService(BaseModel):
             use_cache=self.use_cache,
         )
 
-        # Searchers
+        # Initialize searchers with loaded vector store
         self._vector_searcher = VectorSearcher(self._embedding_service)
         self._lexical_searcher = LexicalSearcher()
-        self._lexical_searcher.build_from_vector_store(
-            self._embedding_service.vector_store
-        )
+        self._lexical_searcher.build_from_vector_store(self._embedding_service.vector_store)
 
         # Hybrid executor as standard
         self._retriever_service = HybridExecutor(
@@ -116,24 +118,122 @@ class RAGService(BaseModel):
             rerank_k=self.rerank_k,
         )
 
-    @property
-    def vector_store(self) -> Any:
-        """Access underlying vector store (for advanced use cases)."""
-        return self._embedding_service.vector_store
+        self._load_with_incremental_embedding()
+        
+        # Start background initialization of heavy models
+        threading.Thread(target=self.warmup, daemon=True).start()
 
-    def clear_cache(self) -> None:
-        """Delete cached vector store files.
+    @staticmethod
+    def calculate_file_hash(file_path: Path) -> str:
+        """Calculate SHA256 hash of a single file (leitura única)."""
+        hasher = hashlib.sha256()
+        hasher.update(file_path.read_bytes())
+        return hasher.hexdigest()
+    
 
-        Delegates to the EmbeddingService to clear cache without reloading models.
+    def _load_with_incremental_embedding(self) -> None:
+        """Intelligently load documents using manifest tracking.
+        
+        1. Scan current files
+        2. Check existing data folder for each file
+        3. Identify NEW, or DELETED files
+        4. Process only changed files through embedding
+        5. Use cache for unchanged files
         """
-        self._embedding_service.clear_cache()
+        logger.info("Incremental embedding enabled")
+        self.data_path.mkdir(parents=True, exist_ok=True)
 
-    def retrieve(self, query: str) -> list[tuple[str, float]]:
-        """Retrieve relevant documents for a query using hybrid pipeline.
+        # Scan current files
+        source_files = self._discover_source_files()
 
-        Returns a list of (document_text, relevance_score) tuples.
+        # Detect changes
+        files_to_embed: list[Path] = []
+        # Lógica incremental baseada nos metadados do ChromaDB
+        chroma_hashes = self._embedding_service.get_file_hashes()
+
+        files_to_embed: list[Path] = []
+        files_to_delete: set[str] = set(chroma_hashes)
+        file_hash_map: dict[str, Path] = {}
+
+        for file_path in source_files:
+            file_hash = self.calculate_file_hash(file_path)
+            file_hash_map[file_hash] = file_path
+            if file_hash not in chroma_hashes:
+                files_to_embed.append(file_path)
+            else:
+                files_to_delete.discard(file_hash)
+
+        # Remover embeddings de arquivos deletados
+        for deleted_hash in files_to_delete:
+            logger.info(f"Deleting embeddings for deleted file hash: {deleted_hash}")
+            self._embedding_service.delete_file_embeddings(deleted_hash)
+
+        # Embutir arquivos novos ou modificados
+        if files_to_embed:
+            logger.info(f"Embedding {len(files_to_embed)} new/modified files...")
+            for file_path in files_to_embed:
+                chunks = self._load_and_chunk_single_file(file_path)
+                self._embedding_service.add_file_embeddings(file_path, chunks, self.calculate_file_hash(file_path))
+        else:
+            logger.info("No new or modified files to embed.")
+
+    
+    def _discover_source_files(self) -> list[Path]:
+        """Discover all supported source files."""
+        if self.data_path.is_file():
+            return [self.data_path]
+
+        if self.data_path.is_dir():
+            files = [
+                p
+                for p in self.data_path.rglob("*")
+                if p.is_file() and LoaderFactory.is_supported(p)
+            ]
+            files.sort(key=lambda p: p.relative_to(self.data_path).as_posix())
+            logger.info("Found %d supported files", len(files))
+            return files
+
+        logger.warning("Data path not found: %s", self.data_path)
+        return []
+
+    def _load_and_chunk_single_file(self, file_path: Path) -> list[str]:
+        """Load and chunk a single file.
+        
+        Delegates chunking to EmbeddingService to ensure consistent parameters.
+        
+        Args:
+            file_path: Path to the file to load and chunk
+            
+        Returns:
+            List of text chunks
         """
-        return self._retriever_service.retrieve(query)
+        try:
+            # Load the file
+            loader = LoaderFactory.get_loader(file_path)
+            raw_docs = loader.load(file_path)
+            
+            if not raw_docs:
+                logger.warning("No content loaded from %s", file_path.name)
+                return []
+            
+            # Delegate chunking to EmbeddingService (single source of truth)
+            chunked = self._embedding_service.chunk_documents(raw_docs)
+            
+            logger.info(
+                "Loaded and chunked %s: %d chunks from %d raw docs",
+                file_path.name,
+                len(chunked),
+                len(raw_docs),
+            )
+            return chunked
+            
+        except Exception:
+            logger.exception("Error loading file %s", file_path.name)
+            return []
+
+    def retrieve(self, query: str ) -> list[tuple[str, float]]:
+        results = self._retriever_service.retrieve(query)
+        return results
 
     def format_results(
         self,
@@ -155,8 +255,10 @@ class RAGService(BaseModel):
             results, max_tokens=max_tokens, compact=compact
         )
 
-    # Alias for backward compatibility
-    format_context = format_results
+    def warmup(self) -> None:
+        """Warmup internal services (e.g. load heavy models)."""
+        self._retriever_service.warmup()
+
 
     def count_tokens(self, text: str) -> int:
         """Public helper to count tokens using the configured tokenizer.

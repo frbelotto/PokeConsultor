@@ -40,7 +40,7 @@ jobs:
           LLM_PROFILE_SUPERVISOR_TEMPERATURE=0.3
           LLM_PROFILE_SUPERVISOR_MAX_TOKENS=2000
           DATA_PATH=data
-          CACHE_DIR=.cache/vector_stores
+          CACHE_DIR=.cache
           LOG_LEVEL=INFO
           POKEAPI_MCP_SERVER_URL=http://localhost:3000
           POKEAPI_MCP_ENABLED=false

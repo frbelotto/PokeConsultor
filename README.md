@@ -9,7 +9,7 @@ An AI-powered intelligent consultant system that leverages Retrieval-Augmented G
 
 - **🧠 RAG-Powered Responses**: Combines semantic search with Large Language Models (LLMs) for accurate, context-aware answers
 - **📚 Multi-Format Support**: Load data from CSV, TXT, PDF, Markdown, and other formats
-- **💾 Smart Caching**: Persistent FAISS vector store with automatic cache invalidation
+- **💾 Smart Caching**: Persistent ChromaDB vector store with incremental embedding support
 - **🔄 Conversation Memory**: Maintains multi-turn conversation context
 - **🎯 Multiple LLM Profiles**: Configure different models for various purposes (executor, supervisor, default)
 - **🔌 Provider Agnostic**: Works with Groq, OpenAI, HuggingFace, and other LangChain-supported providers
@@ -67,7 +67,7 @@ LLM_PROFILE_SUPERVISOR_MAX_TOKENS=2000
 
 # Application Settings
 DATA_PATH=data
-CACHE_DIR=.cache/vector_stores
+CACHE_DIR=.cache
 LOG_LEVEL=INFO
 
 # Optional: PokeAPI MCP Server
@@ -158,7 +158,7 @@ pokeconsultor/
 │       └── search/
 │           ├── executor.py            # Search execution engine
 │           ├── lexical.py             # Lexical/BM25 search
-│           └── vector.py              # Vector/semantic search with FAISS
+│           └── vector.py              # Vector/semantic search with ChromaDB
 ├── config.py                          # Application settings
 main.py                               # Entry point
 ```
@@ -171,7 +171,7 @@ Modular Retrieval-Augmented Generation system with the following components:
 **`service.py` - RAG Service Orchestration**
 - Coordinates document loading and vector store management
 - Executes search queries combining multiple strategies
-- Manages FAISS vector stores with automatic cache invalidation
+- Manages ChromaDB vector stores with incremental embedding
 - Dynamically adjusts context based on LLM model capabilities
 
 **`embeddings.py` - Embedding Models Management**
@@ -186,7 +186,7 @@ Modular Retrieval-Augmented Generation system with the following components:
 **`search/` - Search Execution**
 - `executor.py`: Coordinates different search strategies
 - `lexical.py`: BM25/lexical search for exact matches
-- `vector.py`: Semantic search using FAISS vector stores
+- `vector.py`: Semantic search using ChromaDB vector stores
 - Hybrid search combining both approaches for better results
 
 #### 2. AI Agent (`agents/ai_agent.py`)
@@ -248,6 +248,29 @@ Default: `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`
 
 This model provides excellent multilingual support. You can change it by modifying the `embedding_model` parameter in `RAGService`.
 
+### Incremental Embedding
+
+The system supports **efficient incremental embedding** using ChromaDB's metadata filtering.
+
+#### How It Works
+
+1. **File Tracking**: Every loaded file is hashed (SHA-256) and associated with its stored embeddings in ChromaDB.
+2. **Change Detection**: On startup, the system:
+   - Scans the `data/` directory.
+   - Calculates current file hashes.
+   - Retrieves existing file hashes from ChromaDB.
+3. **Smart Updates**:
+   - **New Files**: Processed and added to the vector store.
+   - **Modified Files**: Old embeddings are removed, and new content is embedded/added.
+   - **Deleted Files**: Embeddings for files no longer in `data/` are automatically removed.
+   - **Unchanged Files**: Skipped entirely (instant load).
+
+#### Benefits
+
+- ⚡ **Zero Redundancy**: Only changed content is processed.
+- 🧹 **Self-Cleaning**: Automatically removes data from deleted files.
+- 🚀 **Fast Startup**: Subsequent runs with no changes are nearly instantaneous.
+
 ## 🧪 Testing
 
 Run tests using pytest:
@@ -285,7 +308,7 @@ uv run task format
 
 1. Place your files in the `data/` directory
 2. The system automatically detects and loads supported formats
-3. Clear cache if needed: delete `.cache/vector_stores/`
+3. Clear cache if needed: delete `.cache/chroma/`
 
 ### Creating Custom Loaders
 
@@ -360,7 +383,7 @@ Year: 2025
 ## 🙏 Acknowledgments
 
 - Built with [LangChain](https://github.com/langchain-ai/langchain) for LLM orchestration
-- Vector storage powered by [FAISS](https://github.com/facebookresearch/faiss)
+- Vector storage powered by [ChromaDB](https://www.trychroma.com/)
 - Embeddings from [Sentence Transformers](https://www.sbert.net/)
 - Dependency management with [uv](https://github.com/astral-sh/uv)
 

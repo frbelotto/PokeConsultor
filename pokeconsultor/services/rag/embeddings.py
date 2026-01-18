@@ -1,24 +1,20 @@
 """Embedding service for document indexing and vector store management."""
 
-import hashlib
 import os
-import shutil
 from pathlib import Path
 from typing import Any
 
-from blingfire import text_to_sentences
-from langchain_community.docstore.in_memory import InMemoryDocstore
-from langchain_community.vectorstores import FAISS
-from langchain_community.vectorstores.faiss import dependable_faiss_import
+
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 import torch
-from tqdm import tqdm
+import chromadb
 
 from pokeconsultor.config import settings
 from pokeconsultor.services.data_loaders.factory import LoaderFactory
 from pokeconsultor.services.logger import logger
 from pokeconsultor.services.rag.formatting.tokenizer import TokenizerService
+from langchain_chroma import Chroma
 
 # Embedding model limits (multilingual-e5-large has 512 token max)
 EMBEDDING_MAX_TOKENS = 500  # Safety margin below 512
@@ -26,17 +22,12 @@ EMBEDDING_MAX_CHARS = 1800  # ~3.6 chars/token average for multilingual
 
 
 class EmbeddingService(BaseModel):
-    """Service for creating and managing document embeddings.
-
-    Handles document loading, chunking, embedding generation, and
-    persistent caching of vector stores.
-    """
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
     data_path: Path
     chunk_size: int = Field(
-        default=350,
+        default=450,
         gt=0,
         description="Target chunk size in tokens (optimal: 300-400 for semantic search)",
     )
@@ -62,8 +53,7 @@ class EmbeddingService(BaseModel):
         description="HuggingFace embedding model for semantic search",
     )
 
-    vector_store: FAISS | None = None
-
+    _vector_store: Chroma = PrivateAttr()
     _embeddings: Any = PrivateAttr()
     _tokenizer_service: TokenizerService = PrivateAttr()
     _cache_key: str = PrivateAttr()
@@ -80,8 +70,30 @@ class EmbeddingService(BaseModel):
             model_kwargs={"device": "cpu"},
         )
         self._tokenizer_service = TokenizerService()
-        self._cache_key = self._generate_cache_key()
-        self._load_and_index_data()
+        self._vector_store = self.configure_vector_store()
+
+
+    def configure_vector_store(self) -> Chroma:
+        # User requested: .cache/chromadb
+        persist_path = settings.CACHE_DIR / "chroma"
+        persist_path.mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"Connecting to ChromaDB at {persist_path}")
+        
+        client = chromadb.PersistentClient(path=str(persist_path))
+        
+        vector_store = Chroma(
+            client=client,
+            collection_name=settings.CHROMA_COLLECTION_NAME,
+            embedding_function=self._embeddings,
+        )
+        return vector_store
+    
+    @property
+    def vector_store(self) -> Chroma:
+        """Public accessor for the internal vector store."""
+        return self._vector_store
+
 
     def _configure_torch_threads(self) -> None:
         """Configure PyTorch to use all available CPU threads."""
@@ -93,81 +105,28 @@ class EmbeddingService(BaseModel):
         except Exception:
             logger.exception("Failed to configure torch threads")  # Log error when configuring threads
 
-    @property
-    def embeddings(self) -> Any:
-        """Expose embeddings for retriever use."""
-        return self._embeddings
+    def add_file_embeddings(self, file_path: Path, chunks: list[str], file_hash: str) -> None:
+        """Add embeddings for a file, associating each chunk with the file hash."""
+        metadatas = [{"file_hash": file_hash, "file_path": str(file_path)} for _ in chunks]
+        self.vector_store.add_texts(chunks, metadatas=metadatas)
+        # Persistência automática pelo ChromaDB
 
-    def _get_cache_path(self) -> Path:
-        """Return the cache directory path for the vector store."""
-        return settings.CACHE_DIR / self._cache_key
+    def delete_file_embeddings(self, file_hash: str) -> None:
+        """Delete all embeddings associated with a file hash."""
+        # ChromaDB permite deletar por filtro de metadados
+        self.vector_store.delete(where={"file_hash": file_hash})
+        # Persistência automática pelo ChromaDB
 
-    def clear_cache(self) -> None:
-        """Delete cached vector store files."""
-        cache_path = self._get_cache_path()
-        if cache_path.exists():
-            shutil.rmtree(cache_path)
-            logger.info("Cleared cache: %s", cache_path)
-
-    def _load_and_index_data(self) -> None:
-        """Load documents and create vector store for similarity search."""
-        # Ensure data directory exists
-        self.data_path.mkdir(parents=True, exist_ok=True)
-
-        if self.use_cache and self._load_from_cache():
-            return
-
-        documents = self._load_documents_from_source()
-        documents = self._chunk_documents(documents)
-
-        if not documents:
-            logger.warning("No documents loaded from data source")
-            return
-
-        logger.info("Creating embeddings for %d chunks...", len(documents))
-        self._create_embeddings_with_progress(documents)
-
-        if self.use_cache:
-            self._save_to_cache()
-
-    def _create_embeddings_with_progress(self, documents: list[str]) -> None:
-        """Create FAISS vector store with minimal memory overhead.
-
-        Batches embeddings to avoid holding the entire embedding matrix
-        in RAM and builds the FAISS index incrementally.
-        """
-        batch_size = 32
-        faiss = dependable_faiss_import()
-        docstore = InMemoryDocstore()
-        index = None
-
-        with tqdm(
-            total=len(documents), desc="Embedding documents", unit="doc"
-        ) as progress:
-            for i in range(0, len(documents), batch_size):
-                batch = documents[i : i + batch_size]
-                if not batch:
-                    continue
-
-                batch_embeddings = self._embeddings.embed_documents(batch)
-                if not batch_embeddings:
-                    continue
-
-                if index is None:
-                    dimension = len(batch_embeddings[0])
-                    index = faiss.IndexFlatL2(dimension)
-                    self.vector_store = FAISS(
-                        embedding_function=self._embeddings,
-                        index=index,
-                        docstore=docstore,
-                        index_to_docstore_id={},
-                    )
-
-                assert self.vector_store is not None
-
-                self.vector_store.add_embeddings(zip(batch, batch_embeddings))
-                progress.update(len(batch))
-
+    def get_file_hashes(self) -> set[str]:
+        """Return all file hashes present in the vector store."""
+        # ChromaDB permite buscar metadados
+        results = self.vector_store.get(include=["metadatas"])
+        hashes = set()
+        for meta in results["metadatas"]:
+            if meta and "file_hash" in meta:
+                hashes.add(meta["file_hash"])
+        return hashes
+  
     def _load_documents_from_source(self) -> list[str]:
         """Load documents from all supported files in data path."""
         source_files = self._discover_source_files()
@@ -194,8 +153,11 @@ class EmbeddingService(BaseModel):
         )
         return documents
 
-    def _chunk_documents(self, documents: list[str]) -> list[str]:
-        """Split documents into overlapping chunks for better retrieval."""
+    def chunk_documents(self, documents: list[str]) -> list[str]:
+        """Split documents into overlapping chunks for better retrieval.
+        
+        Public method to allow external services to use the same chunking logic.
+        """
         if not documents:
             return []
 
@@ -240,59 +202,25 @@ class EmbeddingService(BaseModel):
         return chunked
 
     def _chunk_by_sentences(self, documents: list[str]) -> list[str]:
-        """Semantic chunking respecting sentence boundaries."""
+        """Semantic chunking using RecursiveCharacterTextSplitter with sentence priorities."""
         chunked: list[str] = []
+
+        # Define separators to prioritize: paragraphs -> sentences -> words
+        separators = ["\n\n", "\n", r"(?<=\. )", r"(?<=\! )", r"(?<=\? )", " ", ""]
+        
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=self.chunk_size,
+            chunk_overlap=self.chunk_overlap,
+            length_function=self._count_size,
+            separators=separators,
+            is_separator_regex=True,
+            keep_separator=True,
+        )
 
         for doc in documents:
             if not doc or not doc.strip():
                 continue
-
-            doc_size = self._count_size(doc)
-
-            # Small docs: keep as-is
-            if doc_size <= self.chunk_size:
-                chunked.append(doc)
-                continue
-
-            sentences = text_to_sentences(doc).split("\n")
-            if not sentences:
-                raise RuntimeError(
-                    f"Sentence tokenization returned no sentences for a document of "
-                    f"length {len(doc)} characters. Consider using character-based "
-                    "chunking instead (e.g., set chunking_strategy='character')."
-                )
-
-            current_chunk: list[str] = []
-            current_size = 0
-
-            for sentence in sentences:
-                sentence = sentence.strip()
-                if not sentence:
-                    continue
-
-                sent_size = self._count_size(sentence)
-
-                # Oversized sentence: split with character chunker
-                if sent_size > self.chunk_size:
-                    if current_chunk:
-                        chunked.append(" ".join(current_chunk))
-                        current_chunk = []
-                        current_size = 0
-                    chunked.extend(self._chunk_by_characters([sentence]))
-                    continue
-
-                # Would exceed limit: save current and start new with overlap
-                if current_chunk and (current_size + sent_size > self.chunk_size):
-                    chunked.append(" ".join(current_chunk))
-                    overlap = self._get_overlap_sentences(current_chunk)
-                    current_chunk = overlap
-                    current_size = sum(self._count_size(s) for s in current_chunk)
-
-                current_chunk.append(sentence)
-                current_size += sent_size
-
-            if current_chunk:
-                chunked.append(" ".join(current_chunk))
+            chunked.extend(splitter.split_text(doc))
 
         if len(chunked) != len(documents):
             logger.info(
@@ -311,112 +239,10 @@ class EmbeddingService(BaseModel):
             return self._tokenizer_service.count_tokens(text)
         return len(text)
 
-    def _get_overlap_sentences(self, sentences: list[str]) -> list[str]:
-        """Get last sentences fitting within overlap budget."""
-        if not sentences or self.chunk_overlap <= 0:
-            return []
-
-        overlap: list[str] = []
-        overlap_size = 0
-
-        for sentence in reversed(sentences):
-            sent_size = self._count_size(sentence)
-            if overlap_size + sent_size <= self.chunk_overlap:
-                overlap.insert(0, sentence)
-                overlap_size += sent_size
-            else:
-                break
-
-        return overlap
-
-    @staticmethod
-    def _calculate_files_hash(data_path: Path) -> str:
-        """Calculate hash of source files for cache key.
-
-        Static method so it can be used by both EmbeddingService and RAGService
-        without creating a full instance.
-        """
-        # Discover source files
-        if data_path.is_file():
-            source_files = [data_path]
-        elif data_path.is_dir():
-            source_files = [
-                p
-                for p in data_path.rglob("*")
-                if p.is_file() and LoaderFactory.is_supported(p)
-            ]
-            source_files.sort(key=lambda p: p.relative_to(data_path).as_posix())
-        else:
-            return ""
-
-        if not source_files:
-            return ""
-
-        hasher = hashlib.sha256()
-        base_path = data_path if data_path.is_dir() else data_path.parent
-
-        for file_path in source_files:
-            relative = file_path.relative_to(base_path).as_posix()
-            hasher.update(relative.encode())
-            hasher.update(file_path.read_bytes())
-
-        return hasher.hexdigest()[:16]
-
-    def _generate_cache_key(self) -> str:
-        """Generate unique cache key based on data and config."""
-        files_hash = self._calculate_files_hash(self.data_path)
-        if not files_hash:
-            logger.info("No supported files in %s", self.data_path)
-
-        # Add config to hash for uniqueness
-        config_str = f"{self.chunk_size}:{self.chunk_overlap}:{self.chunking_strategy}:{self.use_token_counting}:{self.embedding_model}"
-        hasher = hashlib.sha256()
-        hasher.update(files_hash.encode())
-        hasher.update(config_str.encode())
-
-        return hasher.hexdigest()[:16]
-
-    def _discover_source_files(self) -> list[Path]:
-        """Discover all supported source files."""
-        if self.data_path.is_file():
-            return [self.data_path]
-
-        if self.data_path.is_dir():
-            files = [
-                p
-                for p in self.data_path.rglob("*")
-                if p.is_file() and LoaderFactory.is_supported(p)
-            ]
-            files.sort(key=lambda p: p.relative_to(self.data_path).as_posix())
-            logger.info("Found %d supported files in %s", len(files), self.data_path)
-            return files
-
-        logger.info("Data path not found: %s", self.data_path)
 
 
-    def _load_from_cache(self) -> bool:
-        """Load vector store from disk cache."""
-        cache_path = self._get_cache_path()
 
-        if not cache_path.exists():
-            logger.debug("Cache miss: %s", cache_path)
-            return False
 
-        self.vector_store = FAISS.load_local(
-            str(cache_path),
-            self._embeddings,
-            allow_dangerous_deserialization=True,
-        )
-        logger.info("Loaded from cache: %s", cache_path)
-        return True
 
-    def _save_to_cache(self) -> None:
-        """Save vector store to disk cache."""
-        if not self.vector_store:
-            logger.warning("No vector store to cache")
-            return
 
-        cache_path = self._get_cache_path()
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        self.vector_store.save_local(str(cache_path))
-        logger.info("Saved to cache: %s", cache_path)
+

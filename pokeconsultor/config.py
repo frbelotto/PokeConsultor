@@ -76,8 +76,12 @@ class Settings(BaseSettings):
     # ==============================================================#
 
     CACHE_DIR: Path = Field(
-        default=Path(".cache/vector_stores"),
-        description="Path to cache directory for vector stores",
+        default=Path(".cache"),
+        description="Base path for application cache",
+    )
+    CHROMA_COLLECTION_NAME: str = Field(
+        default="pokeconsultor",
+        description="Name of the ChromaDB collection",
     )
     DATA_PATH: Path = Field(
         description="Path to data directory containing data source files"

@@ -8,8 +8,6 @@ authors = [
 ]
 requires-python = ">=3.11, <3.14"
 dependencies = [
-    "blingfire>=0.1.8",
-    "faiss-cpu>=1.13.2",
     "langchain>=1.2.1",
     "langchain-community>=0.4.1",
     "langchain-groq>=1.1.1",
@@ -19,7 +17,8 @@ dependencies = [
     "pydantic-settings>=2.12.0",
     "sentence-transformers>=3.0.1",
     "numpy>=1.26.0",
-    "tqdm>=4.66.0",
+    "langchain-chroma>=1.1.0",
+    "torch>=2.4.0, <2.6.0",
 ]
 
 [tool.setuptools]
@@ -59,4 +58,17 @@ no_implicit_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 warn_no_return = true
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu" },
+]
+torchvision = [
+  { index = "pytorch-cpu" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 

@@ -77,12 +77,16 @@ class HybridExecutor(BaseModel):
                 model_name="BAAI/bge-reranker-base",
                 model_kwargs={"device": "cpu"},
             )
-            logger.info("Cross-encoder reranker initialized (BAAI/bge-reranker-base)")
+            logger.debug("Cross-encoder reranker initialized (BAAI/bge-reranker-base)")
         except Exception as exc:
             raise RuntimeError(
                 "Cross-encoder reranker requested but unavailable. "
                 "Install 'sentence-transformers' or configure rerank_method='cosine' or 'none'."
             ) from exc
+
+    def warmup(self) -> None:
+        """Pre-initialize heavy models."""
+        self._ensure_cross_encoder()
 
     def retrieve(self, query: str) -> list[tuple[str, float]]:
         """Run hybrid retrieval: lexical + vector, fuse via RRF, optional rerank."""
