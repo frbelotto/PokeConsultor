@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from langchain_core.documents import Document
 from pokeconsultor.services.data_loaders.base import DataLoader
 from pokeconsultor.services.logger import logger
 
@@ -14,18 +15,17 @@ class TextLoader(DataLoader):
         """Check if file is a text or markdown file."""
         return file_path.suffix.lower() in {".txt", ".md", ".markdown"}
 
-    def load(self, file_path: Path) -> list[str]:
-        """Load text data as documents.
+    def load(self, file_path: Path) -> list[Document]:
+        """Load text data as Document objects.
 
-        Reads the entire file content and splits on double newlines to
-        create separate documents. If no double newlines exist, the
-        entire file becomes a single document.
+        Reads the file content and splits on double newlines to
+        create separate Document objects.
 
         Args:
             file_path: Path to the text file.
 
         Returns:
-            List of formatted document strings.
+            List of Document objects.
 
         Raises:
             FileNotFoundError: If the file does not exist.
@@ -44,7 +44,11 @@ class TextLoader(DataLoader):
 
             # Split on double newlines to create separate documents
             # If no double newlines, treat entire file as one document
-            documents = [doc.strip() for doc in content.split("\n\n") if doc.strip()]
+            raw_docs = [doc.strip() for doc in content.split("\n\n") if doc.strip()]
+            documents = [
+                Document(page_content=doc, metadata={"source": file_path.name})
+                for doc in raw_docs
+            ]
 
             logger.info(
                 f"Loaded {len(documents)} documents from text: {file_path.name}"

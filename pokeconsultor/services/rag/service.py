@@ -8,8 +8,9 @@ Implements intelligent caching with incremental embedding support through
 import hashlib
 from pathlib import Path
 import threading
-from typing import Any
-
+from datetime import datetime
+from typing import Any, List
+from langchain_core.documents import Document
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from pokeconsultor.config import settings
@@ -196,8 +197,8 @@ class RAGService(BaseModel):
         logger.warning("Data path not found: %s", self.data_path)
         return []
 
-    def _load_and_chunk_single_file(self, file_path: Path) -> list[str]:
-        """Load and chunk a single file.
+    def _load_and_chunk_single_file(self, file_path: Path) -> list[Document]:
+        """Load and chunk a single file with enriched metadata.
         
         Delegates chunking to EmbeddingService to ensure consistent parameters.
         
@@ -205,7 +206,7 @@ class RAGService(BaseModel):
             file_path: Path to the file to load and chunk
             
         Returns:
-            List of text chunks
+            List of text chunks as Document objects
         """
         try:
             # Load the file
@@ -215,6 +216,18 @@ class RAGService(BaseModel):
             if not raw_docs:
                 logger.warning("No content loaded from %s", file_path.name)
                 return []
+            
+            # Enrich with OS-level stats
+            stats = file_path.stat()
+            file_stats = {
+                "file_path": str(file_path),
+                "file_size": stats.st_size,
+                "last_modified": datetime.fromtimestamp(stats.st_mtime).isoformat(),
+                "file_extension": file_path.suffix.lower()
+            }
+            
+            for doc in raw_docs:
+                doc.metadata.update(file_stats)
             
             # Delegate chunking to EmbeddingService (single source of truth)
             chunked = self._embedding_service.chunk_documents(raw_docs)
@@ -231,20 +244,25 @@ class RAGService(BaseModel):
             logger.exception("Error loading file %s", file_path.name)
             return []
 
-    def retrieve(self, query: str ) -> list[tuple[str, float]]:
-        results = self._retriever_service.retrieve(query)
+    def retrieve(self, query: str) -> List[Document]:
+        """Retrieve relevant documents using hybrid search.
+        
+        Returns:
+            List of LangChain Document objects with metadata.
+        """
+        results = self._retriever_service.invoke(query)
         return results
 
     def format_results(
         self,
-        results: list[tuple[str, float]],
+        results: List[Document] | List[tuple[Document, float]],
         max_tokens: int | None = None,
         compact: bool = True,
     ) -> str:
         """Format retrieval results into LLM context string.
 
         Args:
-            results: List of (content, score) from retrieve().
+            results: List of Document objects or (doc, score) tuples.
             max_tokens: Maximum tokens for context (auto-calculated if None).
             compact: Use compact format for ~30% token savings.
 
@@ -254,6 +272,11 @@ class RAGService(BaseModel):
         return self._retriever_service.format_context(
             results, max_tokens=max_tokens, compact=compact
         )
+
+    @property
+    def retriever(self) -> HybridExecutor:
+        """Expose the internal hybrid retriever."""
+        return self._retriever_service
 
     def warmup(self) -> None:
         """Warmup internal services (e.g. load heavy models)."""

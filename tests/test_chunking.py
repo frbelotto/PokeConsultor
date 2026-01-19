@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import MagicMock
 from pokeconsultor.services.rag.embeddings import EmbeddingService
 from pathlib import Path
+from langchain_core.documents import Document
 
 class TestChunkingLogic:
     """Test specifically the text chunking capabilities."""
@@ -64,9 +65,9 @@ class TestChunkingLogic:
         # 2. Group sentences into chunk.
         
         service.chunk_size = 500 # Large enough for whole text
-        chunks = service.chunk_documents(start_docs)
+        chunks = service.chunk_documents([Document(page_content=text)])
         assert len(chunks) == 1
-        assert chunks[0] == text
+        assert chunks[0].page_content == text
 
     def test_chunk_by_sentences_splits_correctly(self, mocker, tmp_path):
         """Test that it actually identifies sentence boundaries."""
@@ -88,12 +89,12 @@ class TestChunkingLogic:
         # Total 22 chars > 20. Should split.
         text = "Sentence 1. Sentence 2."
         
-        chunks = service.chunk_documents([text])
+        chunks = service.chunk_documents([Document(page_content=text)])
         
         # Should result in 2 chunks
         assert len(chunks) == 2
-        assert "Sentence 1." in chunks[0]
-        assert "Sentence 2." in chunks[1]
+        assert "Sentence 1." in chunks[0].page_content
+        assert "Sentence 2." in chunks[1].page_content
 
     def test_regex_split_behavior(self, mocker, tmp_path):
         """Verify the specific regex logic for splitting."""

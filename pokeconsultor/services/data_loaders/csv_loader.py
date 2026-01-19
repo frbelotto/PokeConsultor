@@ -3,6 +3,7 @@
 import csv
 from pathlib import Path
 
+from langchain_core.documents import Document
 from pokeconsultor.services.data_loaders.base import DataLoader
 from pokeconsultor.services.logger import logger
 
@@ -27,17 +28,17 @@ class CSVLoader(DataLoader):
         """Check if file is a CSV file."""
         return file_path.suffix.lower() == ".csv"
 
-    def load(self, file_path: Path) -> list[str]:
-        """Load CSV data and format as documents.
+    def load(self, file_path: Path) -> list[Document]:
+        """Load CSV data and format as Document objects.
 
-        Each row in the CSV is converted to a formatted document string
-        with field names and values clearly labeled.
+        Each row in the CSV is converted to a formatted Document
+        with field names and values in content, and row metadata.
 
         Args:
             file_path: Path to the CSV file.
 
         Returns:
-            List of formatted document strings (one per row).
+            List of Document objects (one per row).
 
         Raises:
             FileNotFoundError: If the file does not exist.
@@ -46,7 +47,7 @@ class CSVLoader(DataLoader):
         if not file_path.exists():
             raise FileNotFoundError(f"CSV file not found: {file_path}")
 
-        documents: list[str] = []
+        documents: list[Document] = []
 
         try:
             with open(file_path, encoding="utf-8") as csvfile:
@@ -72,9 +73,13 @@ class CSVLoader(DataLoader):
                         )
                         continue
 
-                    doc = self._format_row(row)
-                    if doc.strip():  # Only add non-empty documents
-                        documents.append(doc)
+                    doc_content = self._format_row(row)
+                    if doc_content.strip():  # Only add non-empty documents
+                        metadata = {
+                            "source": file_path.name,
+                            "row_number": row_number,
+                        }
+                        documents.append(Document(page_content=doc_content, metadata=metadata))
 
             logger.info(f"Loaded {len(documents)} records from CSV: {file_path.name}")
             return documents

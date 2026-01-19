@@ -6,6 +6,7 @@ from typing import Any
 
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 import torch
 import chromadb
@@ -105,10 +106,13 @@ class EmbeddingService(BaseModel):
         except Exception:
             logger.exception("Failed to configure torch threads")  # Log error when configuring threads
 
-    def add_file_embeddings(self, file_path: Path, chunks: list[str], file_hash: str) -> None:
-        """Add embeddings for a file, associating each chunk with the file hash."""
-        metadatas = [{"file_hash": file_hash, "file_path": str(file_path)} for _ in chunks]
-        self.vector_store.add_texts(chunks, metadatas=metadatas)
+    def add_file_embeddings(self, file_path: Path, chunks: list[Document], file_hash: str) -> None:
+        """Add embeddings for a file, associating each chunk with the file hash and path."""
+        for doc in chunks:
+            doc.metadata["file_hash"] = file_hash
+            doc.metadata["file_path"] = str(file_path)
+            
+        self.vector_store.add_documents(chunks)
         # Persistência automática pelo ChromaDB
 
     def delete_file_embeddings(self, file_hash: str) -> None:
@@ -153,7 +157,7 @@ class EmbeddingService(BaseModel):
         )
         return documents
 
-    def chunk_documents(self, documents: list[str]) -> list[str]:
+    def chunk_documents(self, documents: list[Document]) -> list[Document]:
         """Split documents into overlapping chunks for better retrieval.
         
         Public method to allow external services to use the same chunking logic.
@@ -165,7 +169,7 @@ class EmbeddingService(BaseModel):
             return self._chunk_by_sentences(documents)
         return self._chunk_by_characters(documents)
 
-    def _chunk_by_characters(self, documents: list[str]) -> list[str]:
+    def _chunk_by_characters(self, documents: list[Document]) -> list[Document]:
         """Fixed-size chunking using RecursiveCharacterTextSplitter."""
         # Use safe char limit for embedding model, capped at EMBEDDING_MAX_CHARS
         char_size = min(
@@ -182,14 +186,7 @@ class EmbeddingService(BaseModel):
             chunk_overlap=char_overlap,
         )
 
-        chunked: list[str] = []
-        for doc in documents:
-            if not doc:
-                continue
-            if len(doc) <= char_size:
-                chunked.append(doc)
-            else:
-                chunked.extend(splitter.split_text(doc))
+        chunked = splitter.split_documents(documents)
 
         if len(chunked) != len(documents):
             logger.info(
@@ -201,10 +198,8 @@ class EmbeddingService(BaseModel):
 
         return chunked
 
-    def _chunk_by_sentences(self, documents: list[str]) -> list[str]:
+    def _chunk_by_sentences(self, documents: list[Document]) -> list[Document]:
         """Semantic chunking using RecursiveCharacterTextSplitter with sentence priorities."""
-        chunked: list[str] = []
-
         # Define separators to prioritize: paragraphs -> sentences -> words
         separators = ["\n\n", "\n", r"(?<=\. )", r"(?<=\! )", r"(?<=\? )", " ", ""]
         
@@ -217,10 +212,7 @@ class EmbeddingService(BaseModel):
             keep_separator=True,
         )
 
-        for doc in documents:
-            if not doc or not doc.strip():
-                continue
-            chunked.extend(splitter.split_text(doc))
+        chunked = splitter.split_documents(documents)
 
         if len(chunked) != len(documents):
             logger.info(

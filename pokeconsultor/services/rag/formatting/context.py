@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import List, Tuple, Union
+from langchain_core.documents import Document
 
 from pokeconsultor.services.rag.formatting.tokenizer import TokenizerService
 
 
 def format_context(
-    results: List[Tuple[str, float]],
+    results: List[Tuple[Union[Document, str], float]],
     tokenizer_service: TokenizerService,
     max_tokens: int | None = None,
     compact: bool = True,
@@ -26,7 +27,7 @@ def format_context(
 
 
 def _format_compact(
-    results: List[Tuple[str, float]],
+    results: List[Tuple[Union[Document, str], float]],
     tokenizer_service: TokenizerService,
     token_budget: int,
 ) -> str:
@@ -34,21 +35,25 @@ def _format_compact(
     seen_hashes: set[int] = set()
     unique_results: List[Tuple[str, float]] = []
 
-    for content, score in results:
+    for item, score in results:
+        content = item.page_content if isinstance(item, Document) else item
         content_hash = hash(content.strip().lower())
         if content_hash not in seen_hashes:
             seen_hashes.add(content_hash)
-            unique_results.append((content, score))
+            unique_results.append((item, score))
 
     parts: list[str] = []
     remaining = token_budget
     separator_tokens = 2  # "\n---\n" ~2 tokens
 
-    for i, (content, _score) in enumerate(unique_results):
+    for i, (item, _score) in enumerate(unique_results):
         if remaining <= separator_tokens + 10:
             break
 
-        header = f"[{i + 1}] "
+        content = item.page_content if isinstance(item, Document) else item
+        source = _get_source_label(item)
+            
+        header = f"[{i + 1}]{source} "
         header_tokens = tokenizer_service.count_tokens(header)
 
         if remaining <= header_tokens:
@@ -67,7 +72,7 @@ def _format_compact(
 
 
 def _format_verbose(
-    results: List[Tuple[str, float]],
+    results: List[Tuple[Union[Document, str], float]],
     tokenizer_service: TokenizerService,
     token_budget: int,
 ) -> str:
@@ -75,8 +80,11 @@ def _format_verbose(
     parts: list[str] = []
     remaining = token_budget
 
-    for i, (content, _score) in enumerate(results, 1):
-        header = f"[Resultado {i}]\n"
+    for i, (item, _score) in enumerate(results, 1):
+        content = item.page_content if isinstance(item, Document) else item
+        source = _get_source_label(item)
+
+        header = f"[Resultado {i}]{source}\n"
         header_tokens = tokenizer_service.count_tokens(header)
 
         if remaining <= header_tokens:
@@ -93,6 +101,24 @@ def _format_verbose(
             break
 
     return "\n\n".join(parts)
+
+
+def _get_source_label(item: Union[Document, str]) -> str:
+    """Extract descriptive source label from Document metadata."""
+    if not isinstance(item, Document):
+        return ""
+    
+    filename = item.metadata.get("file_path", "unknown").split("/")[-1]
+    page = item.metadata.get("page_number")
+    row = item.metadata.get("row_number")
+    
+    ref = filename
+    if page:
+        ref += f", pág. {page}"
+    if row:
+        ref += f", linha {row}"
+        
+    return f" (Fonte: {ref})"
 
 
 def _clean_content(text: str) -> str:

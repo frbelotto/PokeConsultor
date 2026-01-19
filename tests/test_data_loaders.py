@@ -7,6 +7,7 @@ from typing import Any, Generator
 
 import pytest
 from faker import Faker
+from langchain_core.documents import Document
 
 from pokeconsultor.services.data_loaders.base import DataLoader
 from pokeconsultor.services.data_loaders.csv_loader import CSVLoader
@@ -190,6 +191,7 @@ def temp_pdf_mock(mocker: Any) -> Generator[Path, None, None]:
     mock_page2.extract_text.return_value = fake.paragraph(nb_sentences=5)
 
     mock_pdf.pages = [mock_page1, mock_page2]
+    mock_pdf.metadata = {"Title": "Test PDF", "Author": "Faker"}
     mock_pdf.__enter__.return_value = mock_pdf
     mock_pdf.__exit__.return_value = None
 
@@ -217,6 +219,7 @@ def temp_pdf_empty_mock(mocker: Any) -> Generator[Path, None, None]:
     mock_page2.extract_text.return_value = ""
 
     mock_pdf.pages = [mock_page1, mock_page2]
+    mock_pdf.metadata = {}
     mock_pdf.__enter__.return_value = mock_pdf
     mock_pdf.__exit__.return_value = None
 
@@ -264,9 +267,11 @@ class TestCSVLoader:
         documents = loader.load(temp_csv_file)
 
         assert len(documents) == 5  # 5 rows of data
-        assert all(isinstance(doc, str) for doc in documents)
-        assert all("Name:" in doc for doc in documents)
-        assert all("Email:" in doc for doc in documents)
+        assert all(isinstance(doc, Document) for doc in documents)
+        assert all("Name:" in doc.page_content for doc in documents)
+        assert all("Email:" in doc.page_content for doc in documents)
+        assert all(doc.metadata["row_number"] > 0 for doc in documents)
+        assert all(doc.metadata["source"] == temp_csv_file.name for doc in documents)
 
     def test_load_csv_with_empty_rows(self, temp_csv_with_empty_rows: Path) -> None:
         """Test CSV loading skips empty rows properly."""
@@ -403,8 +408,9 @@ class TestTextLoader:
         documents = loader.load(temp_text_file)
 
         assert len(documents) == 3  # 3 paragraphs separated by double newlines
-        assert all(isinstance(doc, str) for doc in documents)
-        assert all(len(doc) > 0 for doc in documents)
+        assert all(isinstance(doc, Document) for doc in documents)
+        assert all(len(doc.page_content) > 0 for doc in documents)
+        assert all(doc.metadata["source"] == temp_text_file.name for doc in documents)
 
     def test_load_markdown_file(self, temp_markdown_file: Path) -> None:
         """Test loading a markdown file."""
@@ -413,7 +419,7 @@ class TestTextLoader:
 
         assert len(documents) > 0
         # Check for markdown formatting
-        content = "\n\n".join(documents)
+        content = "\n\n".join(doc.page_content for doc in documents)
         assert "#" in content or "##" in content
 
     def test_load_empty_text_file(self, temp_empty_text_file: Path) -> None:
@@ -481,8 +487,11 @@ class TestPDFLoader:
         documents = loader.load(temp_pdf_mock)
 
         assert len(documents) == 2  # Each page is a separate document
-        assert "[Page 1]" in documents[0]
-        assert "[Page 2]" in documents[1]
+        assert all(isinstance(doc, Document) for doc in documents)
+        assert documents[0].metadata["page_number"] == 1
+        assert documents[1].metadata["page_number"] == 2
+        assert all(doc.metadata["total_pages"] == 2 for doc in documents)
+        assert documents[0].metadata["pdf_title"] == "Test PDF"
 
     def test_load_nonexistent_pdf_raises_error(self) -> None:
         """Test that loading non-existent PDF raises FileNotFoundError."""
@@ -584,7 +593,7 @@ class TestDataLoaderBase:
         """Test that concrete loaders must implement supports method."""
 
         class IncompleteLoader(DataLoader):
-            def load(self, file_path: Path) -> list[str]:
+            def load(self, file_path: Path) -> list[Document]:
                 return []
 
         with pytest.raises(TypeError):
@@ -617,7 +626,7 @@ class TestDataLoaderIntegration:
 
         assert isinstance(loader, CSVLoader)
         assert len(documents) > 0
-        assert all(isinstance(doc, str) for doc in documents)
+        assert all(isinstance(doc, Document) for doc in documents)
 
     def test_end_to_end_text_loading(self, temp_text_file: Path) -> None:
         """Test complete workflow for text files."""
@@ -626,6 +635,7 @@ class TestDataLoaderIntegration:
 
         assert isinstance(loader, TextLoader)
         assert len(documents) > 0
+        assert all(isinstance(doc, Document) for doc in documents)
 
     def test_end_to_end_pdf_loading(self, temp_pdf_mock: Path) -> None:
         """Test complete workflow for PDF files."""
@@ -634,6 +644,7 @@ class TestDataLoaderIntegration:
 
         assert isinstance(loader, PDFLoader)
         assert len(documents) > 0
+        assert all(isinstance(doc, Document) for doc in documents)
 
     def test_multiple_file_types_in_sequence(
         self, temp_csv_file: Path, temp_text_file: Path, temp_pdf_mock: Path
@@ -648,4 +659,4 @@ class TestDataLoaderIntegration:
             all_documents.extend(documents)
 
         assert len(all_documents) > 0
-        assert all(isinstance(doc, str) for doc in all_documents)
+        assert all(isinstance(doc, Document) for doc in all_documents)

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from typing import Any, List, Tuple
+from langchain_core.documents import Document
+from langchain_core.retrievers import BaseRetriever
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 
 from pokeconsultor.services.logger import logger
 from pokeconsultor.services.rag.formatting.context import format_context
@@ -15,17 +17,25 @@ from pokeconsultor.services.rag.search.vector import VectorSearcher
 
 
 def rrf_fuse(
-    vector_pairs: List[Tuple[str, float]],
-    lexical_pairs: List[Tuple[str, float]],
+    vector_pairs: List[Tuple[Document, float]],
+    lexical_pairs: List[Tuple[Document, float]],
     k: int,
-) -> List[Tuple[str, float]]:
+) -> List[Tuple[Document, float]]:
     """Reciprocal Rank Fusion over two rankings."""
+    # Use page_content as key, but keep track of the Document object
     vec_rank: dict[str, int] = {
-        content: i for i, (content, _s) in enumerate(vector_pairs)
+        doc.page_content: i for i, (doc, _s) in enumerate(vector_pairs)
     }
     lex_rank: dict[str, int] = {
-        content: i for i, (content, _s) in enumerate(lexical_pairs)
+        doc.page_content: i for i, (doc, _s) in enumerate(lexical_pairs)
     }
+
+    # Map content to Document to avoid losing metadata
+    content_to_doc: dict[str, Document] = {}
+    for doc, _ in vector_pairs:
+        content_to_doc[doc.page_content] = doc
+    for doc, _ in lexical_pairs:
+        content_to_doc[doc.page_content] = doc
 
     all_contents = set(vec_rank.keys()) | set(lex_rank.keys())
     fused_scores: list[tuple[str, float]] = []
@@ -38,10 +48,10 @@ def rrf_fuse(
         fused_scores.append((content, score))
 
     fused_scores.sort(key=lambda x: x[1], reverse=True)
-    return fused_scores
+    return [(content_to_doc[content], score) for content, score in fused_scores]
 
 
-class HybridExecutor(BaseModel):
+class HybridExecutor(BaseRetriever):
     """Orchestrates lexical + vector retrieval, RRF fusion, and rerank."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
@@ -50,9 +60,9 @@ class HybridExecutor(BaseModel):
     vector_searcher: VectorSearcher
     tokenizer_service: TokenizerService
 
-    retrieve_k: int = Field(gt=0, description="Top-K to retrieve from each retriever")
-    lexical_k: int | None = Field(description="Override K for lexical")
-    vector_k: int | None = Field(description="Override K for vector")
+    retrieve_k: int = Field(default=10, gt=0, description="Top-K to retrieve from each retriever")
+    lexical_k: int | None = Field(default=None, description="Override K for lexical")
+    vector_k: int | None = Field(default=None, description="Override K for vector")
     rrf_k: int = Field(default=60, gt=0, description="RRF constant")
     rerank_method: str = Field(
         default="cross_encoder", description="'none' | 'cosine' | 'cross_encoder'"
@@ -88,7 +98,7 @@ class HybridExecutor(BaseModel):
         """Pre-initialize heavy models."""
         self._ensure_cross_encoder()
 
-    def retrieve(self, query: str) -> list[tuple[str, float]]:
+    def _get_relevant_documents(self, query: str) -> List[Document]:
         """Run hybrid retrieval: lexical + vector, fuse via RRF, optional rerank."""
         self._ensure_cross_encoder()
 
@@ -101,9 +111,14 @@ class HybridExecutor(BaseModel):
         if not vector_results and not lexical_results:
             return []
 
-        vec_pairs: list[tuple[str, float]] = [
-            (doc.page_content, float(score)) for (doc, score) in vector_results
-        ]
+        # Convert vector results to standard format if needed
+        vec_pairs: List[Tuple[Document, float]] = []
+        for doc, score in vector_results:
+            if not isinstance(doc, Document):
+                # Fallback em caso de erro de tipo inesperado
+                vec_pairs.append((Document(page_content=str(doc)), float(score)))
+            else:
+                vec_pairs.append((doc, float(score)))
 
         fused = rrf_fuse(vec_pairs, lexical_results, self.rrf_k)
         if not fused:
@@ -112,11 +127,19 @@ class HybridExecutor(BaseModel):
         if self.rerank_k and self.rerank_k > 0:
             fused = self._rerank_results(query, fused, self.rerank_k)
 
-        return fused
+        return [doc for doc, score in fused]
+
+    def retrieve(self, query: str) -> list[tuple[str, float]]:
+        """Deprecated: use invoke() or _get_relevant_documents.
+        
+        Maintaining for backward compatibility during transition.
+        """
+        docs = self.invoke(query)
+        return [(doc.page_content, 1.0) for doc in docs]
 
     def _rerank_results(
-        self, query: str, results: list[tuple[str, float]], rerank_k: int
-    ) -> list[tuple[str, float]]:
+        self, query: str, results: list[tuple[Document, float]], rerank_k: int
+    ) -> list[tuple[Document, float]]:
         if self.rerank_method == "none":
             return results[:rerank_k]
 
@@ -125,7 +148,7 @@ class HybridExecutor(BaseModel):
                 raise RuntimeError(
                     "Cross-encoder reranker not initialized; check dependencies."
                 )
-            pairs: List[Tuple[str, str]] = [(query, content) for content, _ in results]
+            pairs: List[Tuple[str, str]] = [(query, doc.page_content) for doc, _ in results]
             scores = list(self._cross_encoder.score(pairs))
             order = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
             top = order[:rerank_k]
@@ -135,7 +158,7 @@ class HybridExecutor(BaseModel):
             embeddings = self.vector_searcher.embedding_service.embeddings
             q = np.array(embeddings.embed_query(query), dtype=float)
             docs = np.array(
-                embeddings.embed_documents([content for content, _ in results]),
+                embeddings.embed_documents([doc.page_content for doc, _ in results]),
                 dtype=float,
             )
             q_norm = np.linalg.norm(q)
@@ -152,8 +175,15 @@ class HybridExecutor(BaseModel):
 
     def format_context(
         self,
-        results: list[tuple[str, float]],
+        results: list[Document] | list[tuple[Document, float]],
         max_tokens: int | None = None,
         compact: bool = True,
     ) -> str:
-        return format_context(results, self.tokenizer_service, max_tokens, compact)
+        # Handle both list of Documents and list of (Doc, score)
+        if results and isinstance(results[0], tuple):
+            formatted_results = results # format_context handles tuples
+        else:
+            # format_context expects List[Tuple[Document | str, float]]
+            formatted_results = [(doc, 1.0) for doc in results]
+            
+        return format_context(formatted_results, self.tokenizer_service, max_tokens, compact)

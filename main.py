@@ -1,110 +1,69 @@
+"""Main entry point for PokeConsultor."""
 
-
+import sys
 from pokeconsultor.agents.ai_agent import AIAgent
-from pokeconsultor.config import settings
-from pokeconsultor.llm.base import llm_profiles
 from pokeconsultor.models.llm import LLMRequest
+from pokeconsultor.services.logger import logger
 from pokeconsultor.services.rag.service import RAGService
-import re
+from pokeconsultor.llm.base import llm_profiles
 
 
-def main() -> None:
-    """Run the PokeConsultor interactive agent."""
-    try:
-        # Initialize LLM and Agent
-        print("\n" + "=" * 60)
-        print("⚙️  INICIALIZANDO POKECONSULTOR")
-        print("=" * 60)
+# System message for consistent AI behavior
+SYSTEM_MESSAGE = (
+    "## ROLE E COMPORTAMENTO\n"
+    "Você é um agente de consultoria que responde EXCLUSIVAMENTE com base no contexto fornecido.\n"
+    "Você NÃO É um assistente geral de IA. Você é um motor de busca + síntese do RAG.\n"
+    "\n"
+    "## 🚨 LIMITES ABSOLUTOS - SEM EXCEÇÕES\n"
+    "⛔ PROIBIDO USAR:\n"
+    "• Seu conhecimento pré-existente/treinamento\n"
+    "• Informações gerais mesmo que 'óbvias'\n"
+    "• Deduções lógicas não presentes no contexto\n"
+    "• Senso comum ou conhecimento do mundo\n"
+    "• Completar lacunas com inferência\n"
+    "• Qualquer coisa além do que está EXPLICITAMENTE no contexto\n"
+    "\n"
+    "✅ PERMITIDO APENAS:\n"
+    "• Sintetizar e reorganizar informações do contexto\n"
+    "• Extrair detalhes e contexto relevante para resposta completa\n"
+    "• Referencial cruzado dentro do contexto fornecido\n"
+    "• Estruturar a resposta de forma clara e acessível\n"
+    "• Cite explicitamente as fontes (ex: '(Fonte: nome.pdf, pág. X)')\n"
+    "\n"
+    "## 🎯 ESTRATÉGIA DE RESPOSTA\n"
+    "1️⃣ Receba a pergunta\n"
+    "2️⃣ Procure APENAS no contexto fornecido\n"
+    "3️⃣ SE encontrar → Sintetize UMA RESPOSTA COMPLETA usando TUDO do contexto relevante\n"
+    "   • Forneça a resposta direta\n"
+    "   • Inclua TODOS os detalhes, nuances e contexto relacionado\n"
+    "4️⃣ SE NÃO encontrar → Responda APENAS: 'Não tenho essa informação no contexto fornecido.'\n"
+    "\n"
+    "## TESTE DE VERDADE\n"
+    "Antes de responder, faça estas perguntas:\n"
+    "• Esta informação está no contexto, ainda que de forma implícita? SIM → Responda | NÃO → 'Não tenho essa informação'\n"
+    "• Estou usando algo que aprendi durante meu treinamento? SIM → APAGUE ISSO | NÃO → Continue\n"
+    "• Um humano lendo apenas o contexto entenderia minha resposta da mesma forma? SIM → OK | NÃO → Reescreva\n"
+    "\n"
+    "## ESTILO\n"
+    "- Claro, estruturado e sem jargões desnecessários\n"
+    "- Organize por relevância (resposta direta → detalhes → contexto)\n"
+    "- Use formatação (negrito, listas) para legibilidade\n"
+    "- Sempre cite a fonte do contexto EXATAMENTE como fornecido no cabeçalho [n](Fonte: ...)\n"
+)
 
-        print("\n[1] 📂 Carregando RAG service ...")
-        rag_service = RAGService(
-            use_cache=True,
-            llm_model=settings.LLM_DEFAULT_MODEL,
-        )
 
-        print(
-            f"[2] 🤖 Inicializando LLM ({settings.LLM_DEFAULT_PROVIDER}/{settings.LLM_DEFAULT_MODEL})..."
-        )
-        print("[3] 🎯 Configurando AI Agent com RAG...")
-        ai_agent = AIAgent(llm=llm_profiles.get_profile("default"))
-        print("\n✅ Sistema pronto para consultas!\n")
-
-    except Exception as e:
-        print(f"❌ Erro ao inicializar: {e}")
-        print("\n💡 Verifique se:")
-        print("   - O arquivo .env existe e está configurado")
-        print("   - A variável LLM_API_KEY está definida")
-        print("   - O ambiente virtual está ativado")
+def print_header():
+    """Print the application header."""
+    print("\033[1;36m" + "=" * 60)
+    print("⚙️  INICIALIZANDO POKECONSULTOR")
+    print("=" * 60 + "\033[0m")
 
 
-    # System message for consistent AI behavior
-    system_message = (
-        "## ROLE E COMPORTAMENTO\n"
-        "Você é um agente de consultoria que responde EXCLUSIVAMENTE com base no contexto fornecido.\n"
-        "Você NÃO É um assistente geral de IA. Você é um motor de busca + síntese do RAG.\n"
-        "\n"
-        "## 🚨 LIMITES ABSOLUTOS - SEM EXCEÇÕES\n"
-        "⛔ PROIBIDO USAR:\n"
-        "• Seu conhecimento pré-existente/treinamento\n"
-        "• Informações gerais mesmo que 'óbvias'\n"
-        "• Deduções lógicas não presentes no contexto\n"
-        "• Senso comum ou conhecimento do mundo\n"
-        "• Completar lacunas com inferência\n"
-        "• Qualquer coisa além do que está EXPLICITAMENTE no contexto\n"
-        "\n"
-        "✅ PERMITIDO APENAS:\n"
-        "• Sintetizar e reorganizar informações do contexto\n"
-        "• Extrair detalhes e contexto relevante para resposta completa\n"
-        "• Referencial cruzado dentro do contexto fornecido\n"
-        "• Estruturar a resposta de forma clara e acessível\n"
-        "• Cite explicitamente as fontes (ex: '[1]', '[2]')\n"
-        "\n"
-        "## 🎯 ESTRATÉGIA DE RESPOSTA\n"
-        "1️⃣ Receba a pergunta\n"
-        "2️⃣ Procure APENAS no contexto fornecido\n"
-        "3️⃣ SE encontrar → Sintetize UMA RESPOSTA COMPLETA usando TUDO do contexto relevante\n"
-        "   • Forneça a resposta direta\n"
-        "   • Inclua TODOS os detalhes, nuances e contexto relacionado\n"
-
-        "4️⃣ SE NÃO encontrar → Responda APENAS: 'Não tenho essa informação no contexto fornecido.'\n"
-        "\n"
-        "## EXEMPLOS CRÍTICOS\n"
-        "❌ PROIBIDO:\n"
-        "   Pergunta: 'Quem abriu a câmara?'\n"
-        "   Contexto: [Explica que Gina abriu mas foi manipulada]\n"
-        "   Resposta: 'Gina Weasley. [Adiciona do seu conhecimento sobre Harry Potter]'\n"
-        "\n"
-        "✅ CORRETO:\n"
-        "   Pergunta: 'Quem abriu a câmara?'\n"
-        "   Contexto: [Explica que Gina abriu mas foi manipulada]\n"
-        "   Resposta: 'Gina Weasley abriu a Câmara Secreta, mas sob influência do diário de Tom Riddle. Ela não agiu de livre e espontânea vontade porque Riddle a manipulava através do diário...'\n"
-        "\n"
-        "❌ PROIBIDO:\n"
-        "   Pergunta: 'Qual é a capital do Brasil?'\n"
-        "   Contexto: [Vazio ou não menciona]\n"
-        "   Resposta: 'Brasília é a capital...' [Usando seu conhecimento]\n"
-        "\n"
-        "✅ CORRETO:\n"
-        "   Pergunta: 'Qual é a capital do Brasil?'\n"
-        "   Contexto: [Vazio ou não menciona]\n"
-        "   Resposta: 'Não tenho essa informação no contexto fornecido.'\n"
-        "\n"
-        "## TESTE DE VERDADE\n"
-        "Antes de responder, faça estas perguntas:\n"
-        "• Esta informação está EXPLICITAMENTE no contexto? SIM → Responda | NÃO → 'Não tenho essa informação'\n"
-        "• Estou usando algo que aprendi durante meu treinamento? SIM → APAGUE ISSO | NÃO → Continue\n"
-        "• Um humano lendo apenas o contexto entenderia minha resposta da mesma forma? SIM → OK | NÃO → Reescreva\n"
-        "\n"
-        "## ESTILO\n"
-        "- Claro, estruturado e sem jargões desnecessários\n"
-        "- Organize por relevância (resposta direta → detalhes → contexto)\n"
-        "- Use formatação (negrito, listas) para legibilidade\n"
-        "- Sempre cite a fonte do contexto\n"
-    )
-
-    # Interactive mode
-    print("=" * 60)
-    print("🎮 POKECONSULTOR - CONSULTOR DE POKÉMON COM IA")
+def print_ready():
+    """Print system ready message."""
+    print("\n\033[1;32m✅ Sistema pronto para consultas!\033[0m")
+    print("\n" + "=" * 60)
+    print("\033[1;34m🎮 POKECONSULTOR - CONSULTOR DE POKÉMON COM IA\033[0m")
     print("=" * 60)
     print("\n💬 Faça suas perguntas sobre Pokémon!")
     print("\n📝 Comandos disponíveis:")
@@ -114,219 +73,194 @@ def main() -> None:
     print("   • 'rag' para ativar/desativar uso de contexto RAG")
     print("   • 'memória' ou 'memory' para ver histórico de conversas")
     print("   • 'limpar_memória' ou 'clear_memory' para apagar histórico")
-    print("   • Ctrl+C para interromper\n")
+    print("   • Ctrl+C para interromper")
 
-    debug_mode = False
-    rag_enabled = True
 
-    while True:
-        try:
-            query = input("🔍 Sua pergunta: ").strip()
+def main():
+    """Main execution loop."""
+    print_header()
 
-            # Check for exit commands
-            if query.lower() in ["sair", "exit", "quit", "q"]:
-                print("\n👋 Até a próxima!")
-                break
+    try:
+        # 1. Configuration
+        llm = llm_profiles.get_profile("default")
 
-            # Check for clear commands
-            if query.lower() in ["limpar", "clear", "cls"]:
-                print("\033[2J\033[H")  # Clear console
-                continue
+        # 2. Initialize RAG service
+        print(f"[1] 📂 Carregando RAG service (modelo: {llm.model})...")
+        rag_service = RAGService(llm_model=llm.model)
 
-            # Check for debug toggle
-            if query.lower() == "debug":
-                debug_mode = not debug_mode
-                status = "ativado" if debug_mode else "desativado"
-                print(f"\n🐛 Modo debug {status}\n")
-                continue
+        # 3. Initialize AI Agent
+        print(f"[2] 🤖 Inicializando LLM ({llm.provider}:{llm.model})...")
+        agent = AIAgent(llm=llm)
 
-            # Check for RAG toggle
-            if query.lower() == "rag":
-                rag_enabled = not rag_enabled
-                status = "ativado" if rag_enabled else "desativado"
-                print(f"\n📚 RAG {status}\n")
-                continue
+        # 4. Setup Agent with RAG
+        print("[3] 🎯 Configurando AI Agent com RAG...")
 
-            # Check for memory commands
-            if query.lower() in ["memória", "memory"]:
-                summary = ai_agent.memory.get_summary()
-                messages = ai_agent.memory.get_messages()
-                print(f"\n📚 {summary}\n")
-                if messages:
-                    print("=" * 80)
-                    print("📋 HISTÓRICO COMPLETO DE CONVERSAS")
-                    print("=" * 80)
+        print_ready()
 
-                    # Group messages by user-assistant pairs
-                    i = 1
-                    msg_idx = 0
-                    while msg_idx < len(messages):
-                        msg = messages[msg_idx]
+        debug_mode = False
+        use_rag = True
 
-                        # Display user message
-                        if msg.role.value == "user":
-                            timestamp = msg.timestamp.strftime("%H:%M:%S")
-                            print(f"\n[Pergunta {i}] 👤 ({timestamp})")
+        while True:
+            try:
+                print("\n\033[1;33m🔍 Sua pergunta: \033[0m", end="", flush=True)
+                query = sys.stdin.readline().strip()
+
+                if not query:
+                    continue
+
+                # Check for exit commands
+                if query.lower() in ["sair", "exit"]:
+                    print("\n👋 Até logo!")
+                    break
+
+                # Check for clear commands
+                if query.lower() in ["limpar", "clear", "cls"]:
+                    print("\033[2J\033[H")  # Clear console
+                    continue
+
+                # Check for debug toggle
+                if query.lower() == "debug":
+                    debug_mode = not debug_mode
+                    status = "ATIVADO" if debug_mode else "DESATIVADO"
+                    print(f"\n⚙️ Modo debug {status}")
+                    continue
+
+                # Check for RAG toggle
+                if query.lower() == "rag":
+                    use_rag = not use_rag
+                    status = "ATIVADO" if use_rag else "DESATIVADO"
+                    print(f"\n📚 Uso de RAG {status}")
+                    continue
+
+                # Memory commands
+                if query.lower() in ["memória", "memory"]:
+                    history = agent.get_history()
+                    if not history:
+                        print("\n🧠 Memória vazia.")
+                    else:
+                        print("\n" + "=" * 80)
+                        print(f"📋 HISTÓRICO COMPLETO DE CONVERSA ({len(history)} mensagens)")
+                        print("=" * 80)
+                        
+                        pair_idx = 1
+                        for i in range(0, len(history), 2):
+                            user_msg = history[i]
+                            print(f"\n[Pergunta {pair_idx}] 👤")
                             print("-" * 80)
-                            print(f"❓ {msg.content}")
-
-                            # Look for corresponding assistant response
-                            if (
-                                msg_idx + 1 < len(messages)
-                                and messages[msg_idx + 1].role.value == "assistant"
-                            ):
-                                response_msg = messages[msg_idx + 1]
-                                response_timestamp = response_msg.timestamp.strftime(
-                                    "%H:%M:%S"
-                                )
-                                print(f"\n[Resposta {i}] 🤖 ({response_timestamp})")
+                            print(f"❓ {user_msg['content']}")
+                            
+                            if i + 1 < len(history):
+                                assistant_msg = history[i+1]
+                                print(f"\n[Resposta {pair_idx}] 🤖")
                                 print("-" * 80)
-                                response_preview = response_msg.content
-                                if len(response_preview) > 300:
-                                    response_preview = (
-                                        response_preview[:300]
-                                        + "\n\n... [resposta truncada para visualização]"
-                                    )
-                                print(f"✅ {response_preview}")
-                                msg_idx += 1
+                                print(f"✨ {assistant_msg['content']}")
+                            pair_idx += 1
+                        print("\n" + "=" * 80)
+                    continue
 
-                            i += 1
+                if query.lower() in ["limpar_memória", "clear_memory"]:
+                    agent.clear_memory()
+                    print("\n🧠 Memória limpa!")
+                    continue
 
-                        msg_idx += 1
+                print("\n" + "=" * 60)
+                print(f"🔍 QUERY: {query}")
+                print("=" * 60)
 
-                    print("\n" + "=" * 80 + "\n")
-                continue
+                print("\n[AI] 🤖 Gerando resposta...")
 
-            # Check for clear memory command
-            if query.lower() in ["limpar_memória", "clear_memory"]:
-                ai_agent.memory.clear()
-                print("\n✨ Histórico de conversas apagado!\n")
-                continue
+                # RAG Process
+                rag_results = []
+                retrieved_context = ""
+                used_indices = []
 
-            # Process query with visual feedback
-            print("\n" + "=" * 60)
-            print(f"🔍 QUERY: {query}")
-            print("=" * 60)
-
-            # RAG retrieval (always executed when enabled; debug shows detalhes)
-            retrieved_context: str | None = None
-            rag_results: list[tuple[str, float]] = []
-            rag_consulted = rag_enabled
-            if rag_enabled:
-                try:
+                if use_rag:
+                    # Retrieve documents
                     rag_results = rag_service.retrieve(query)
-                    retrieved_context = rag_service.format_results(rag_results)
+                    
+                    if rag_results:
+                        # Format context for prompt
+                        retrieved_context = rag_service.format_results(rag_results)
+                        
+                        # Identify which results are in the context (roughly)
+                        # We use a simple check to see if the content is in the formatted context
+                        for i, doc in enumerate(rag_results, 1):
+                            if doc.page_content[:50] in retrieved_context:
+                                used_indices.append(i)
 
-                    # Identify which results were actually sent to LLM
-                    used_indices: set[int] = set()
-                    if retrieved_context:
-                        for line in retrieved_context.splitlines():
-                            # Support both [N] (compact) and [Resultado N] (verbose)
-                            match = re.match(r"^\[(?:Resultado )?(\d+)\]", line)
-                            if match:
-                                try:
-                                    used_indices.add(int(match.group(1)))
-                                except ValueError:
-                                    continue
-
-                    if debug_mode:
-                        print("\n" + "🔍" * 30)
-                        print("[RAG] 📚 PIPELINE DE RECUPERAÇÃO E CONTEXTO")
-                        print("🔍" * 30)
-
-                        # Stage 1: All retrieved results
-                        print("\n[STAGE 1] 📋 DOCUMENTOS RECUPERADOS (retrieve):")
-                        print("=" * 80)
-                        print(f"Total recuperado: {len(rag_results)} documentos\n")
-                        for i, (doc, score) in enumerate(rag_results, 1):
-                            doc_preview = doc[:160] + "..." if len(doc) > 160 else doc
-                            doc_chars = len(doc)
-                            relevance_bar = "█" * int(score * 10) + "░" * (
-                                10 - int(score * 10)
-                            )
-                            in_context_flag = " ✓ ENVIADO" if i in used_indices else ""
-                            print(
-                                f"  [{i:2d}] Score: {score:.4f} [{relevance_bar}] {doc_chars:5d} chars{in_context_flag}"
-                            )
-                            print(f"       └─ {doc_preview}\n")
-
-                        # Stage 2: What was sent to LLM
-                        print("\n[STAGE 2] 📤 CONTEXTO ENVIADO À LLM (format_results):")
-                        print("=" * 80)
-                        if retrieved_context:
-                            sent_count = len(used_indices)
-                            sent_chars = len(retrieved_context)
-                            approx_tokens = rag_service.count_tokens(retrieved_context)
-                            print(
-                                f"Total enviado: {sent_count} de {len(rag_results)} documentos "
-                                f"({sent_chars} chars, ~{approx_tokens} tokens)\n"
-                            )
-                            print("-" * 80)
-                            print(retrieved_context)
-                            print("-" * 80)
-                        else:
-                            print(
-                                "(nenhum contexto gerado - limite de tokens atingido ou sem resultados)"
-                            )
-                        print("=" * 80 + "\n")
-
-                except Exception as e:
-                    print(f"⚠️  Erro ao recuperar documentos: {e}")
-                    print("-" * 60)
-                    rag_consulted = False
-
-            print("\n[AI] 🤖 Gerando resposta...\n")
-            request = LLMRequest(
-                prompt=query,
-                system_message=system_message,
-                context=retrieved_context,
-            )
-            response = ai_agent.respond(request)
-
-            # RAG usage summary (always show)
-            consulted_chars = (
-                sum(len(doc) for doc, _score in rag_results)
-                if rag_consulted and rag_results
-                else 0
-            )
-            sent_chars = len(retrieved_context) if retrieved_context else 0
-            rag_sent = bool(retrieved_context)
-
-            print("\n" + "=" * 60)
-            print("✨ RESPOSTA DA IA")
-            print("=" * 60)
-            print(f"\n{response}\n")
-
-            print("[RAG] 📊 Uso nesta consulta:")
-            print(f"   • Consultado: {'Sim' if rag_consulted else 'Não'}")
-            print(
-                f"   • Documentos recuperados: {len(rag_results) if rag_consulted else 0} | Tamanho bruto: {consulted_chars} chars"
-            )
-            print(
-                f"   • Contexto enviado à LLM: {'Sim' if rag_sent else 'Não'} | Tamanho enviado: {sent_chars} chars"
-            )
-            print("-" * 60)
-
-            # Show additional debug info about the response
-            if debug_mode:
-                print("\n" + "-" * 60)
-                print("[DEBUG] 📊 INFORMAÇÕES DA RESPOSTA:")
-                print("-" * 60)
-                print(f"✓ Pergunta: {query}")
-                print(
-                    f"✓ Contexto utilizado: {'Sim (RAG)' if retrieved_context else 'Não'}"
+                # Generate response
+                request = LLMRequest(
+                    prompt=query,
+                    system_message=SYSTEM_MESSAGE,
+                    context=retrieved_context if use_rag else None
                 )
+                
+                response_text = agent.respond(request)
+
+                # Print response
+                print("\n" + "=" * 60)
+                print("✨ RESPOSTA DA IA")
+                print("=" * 60)
+                print(f"\n{response_text}")
+
+                # Debug info
+                if debug_mode:
+                    print("\n" + "🔍" * 30)
+                    print("[RAG] 📚 PIPELINE DE RECUPERAÇÃO E CONTEXTO")
+                    print("🔍" * 30)
+
+                    # Stage 1: All retrieved results
+                    print("\n[STAGE 1] 📋 DOCUMENTOS RECUPERADOS (retrieve):")
+                    print("=" * 80)
+                    print(f"Total recuperado: {len(rag_results)} documentos\n")
+                    for i, doc in enumerate(rag_results, 1):
+                        content = doc.page_content
+                        doc_preview = content[:160] + "..." if len(content) > 160 else content
+                        doc_chars = len(content)
+                        
+                        filename = doc.metadata.get("file_path", "unknown").split("/")[-1]
+                        page = doc.metadata.get("page_number")
+                        row = doc.metadata.get("row_number")
+                        
+                        ref = filename
+                        if page:
+                            ref += f" (pág. {page})"
+                        elif row:
+                            ref += f" (linha {row})"
+                        
+                        in_context_flag = " ✓ ENVIADO" if i in used_indices else ""
+                        print(
+                            f"  [{i:2d}] Fonte: {ref:30s} | {doc_chars:5d} chars{in_context_flag}"
+                        )
+                        print(f"       └─ {doc_preview}\n")
+
+                    # Stage 2: What was sent to LLM
+                    print("\n[STAGE 2] 📤 CONTEXTO ENVIADO À LLM (format_results):")
+                    print("=" * 80)
+                    if retrieved_context:
+                        sent_count = len(used_indices)
+                        sent_chars = len(retrieved_context)
+                        approx_tokens = rag_service.count_tokens(retrieved_context)
+                        print(
+                            f"Total enviado: {sent_count} de {len(rag_results)} documentos "
+                            f"| {sent_chars} chars | ~{approx_tokens} tokens"
+                        )
+                        print("-" * 80)
+                        print(retrieved_context)
+                    else:
+                        print("Nenhum contexto enviado.")
+
+                print("-" * 60)
                 print("-" * 60)
 
-            print("-" * 60 + "\n")
+            except KeyboardInterrupt:
+                print("\n⚠️ Operação interrompida pelo usuário.")
+                continue
 
-        except KeyboardInterrupt:
-            print("\n\n👋 Encerrando...")
-            break
-
-        except Exception as e:
-            print(f"\n❌ Erro ao processar consulta: {e}\n")
-            print("💡 Tente reformular sua pergunta ou verifique a conexão.\n")
+    except Exception as e:
+        logger.exception("Erro fatal na aplicação")
+        print(f"\n\033[1;31m❌ ERRO FATAL: {e}\033[0m")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

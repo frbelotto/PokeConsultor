@@ -4,6 +4,7 @@ from typing import Any
 
 from langchain.chat_models import BaseChatModel, init_chat_model
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from pydantic import BaseModel, ConfigDict, Field
 
 from pokeconsultor.llm.base import LLMProfile
@@ -52,47 +53,45 @@ class AIAgent(BaseModel):
 
         assert self.agent is not None, "Chat model not initialized"
 
-        messages: list[BaseMessage] = []
+        # Construct prompt template
+        prompt_template = ChatPromptTemplate.from_messages([
+            ("system", "{system_message}"),
+            MessagesPlaceholder(variable_name="history"),
+            ("human", "{prompt}"),
+        ])
 
-        if request.system_message:
-            # Instructions FIRST to ensure LLM adheres to them,
-            # then context so LLM has material to work with
-            sys_content = request.system_message
-            
-            # If no context, explicitly state it to LLM as a safeguard
-            if request.context:
-                sys_content = f"{request.system_message}\n\n## CONTEXTO RELEVANTE\n{request.context}"
-            else:
-                # Enforce "no context = no guessing" by being explicit
-                sys_content = f"{request.system_message}\n\n⚠️ AVISO: Você NÃO TEM CONTEXTO para esta pergunta. Você DEVE responder: 'Não tenho essa informação no contexto fornecido.'"
-                
-            messages.append(SystemMessage(content=sys_content))
-        elif request.context:
-            messages.append(SystemMessage(content=f"Context:\n{request.context}"))
-
-        # Include conversation history from memory
+        # Prepare messages
+        history = []
         for msg in self.memory.get_messages():
             if msg.role.value == "user":
-                messages.append(HumanMessage(content=msg.content))
+                history.append(HumanMessage(content=msg.content))
             elif msg.role.value == "assistant":
-                messages.append(AIMessage(content=msg.content))
-            elif msg.role.value == "system":
-                messages.append(SystemMessage(content=msg.content))
+                history.append(AIMessage(content=msg.content))
 
-        # Add current user prompt
-        messages.append(HumanMessage(content=request.prompt))
+        # Handle context and safeguards
+        sys_content = request.system_message or "Você é um assistente prestativo."
+        if request.context:
+            sys_content += f"\n\n## CONTEXTO RELEVANTE\n{request.context}"
+        else:
+            # Enforce "no context = no guessing" safeguard
+            sys_content += (
+                f"\n\n⚠️ AVISO: Você NÃO TEM CONTEXTO para esta pergunta. "
+                "Você DEVE responder: 'Não tenho essa informação no contexto fornecido.'"
+            )
 
-        response = self.agent.invoke(messages)
+        # Execute using LCEL
+        chain = prompt_template | self.agent
+        response = chain.invoke({
+            "system_message": sys_content,
+            "history": history,
+            "prompt": request.prompt
+        })
 
         # Persist conversation
         self.memory.add_user_message(request.prompt)
 
         # Ensure response.content is converted to string
-        response_text = (
-            str(response.content)
-            if not isinstance(response.content, str)
-            else response.content
-        )
+        response_text = str(response.content) if not isinstance(response.content, str) else response.content
         self.memory.add_assistant_message(response_text)
 
         return response_text

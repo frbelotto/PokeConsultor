@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Callable, Iterator
 
 import pytest
+from langchain_core.documents import Document
 
 
 @dataclass
@@ -87,20 +88,26 @@ class FakeRAGService:
         self.use_cache = use_cache
         self.llm_model = llm_model
 
-    def retrieve(self, query: str, k: int = 3) -> list[tuple[str, float]]:
-        # Not used in non-debug path; provided for completeness
-        return [(f"Doc about: {query}", 0.9)]
+    def retrieve(self, query: str, k: int = 3) -> list[Document]:
+        # Now returns List[Document]
+        return [Document(page_content=f"Doc about: {query}")]
 
-    def format_results(self, results: list[tuple[str, float]]) -> str:
+    def format_results(self, results: list[Document] | list[tuple[Document, float]]) -> str:
         # Minimal formatting similar to the app's expectation
         formatted = []
-        for i, (doc, _score) in enumerate(results, 1):
-            formatted.append(f"[Resultado {i}] {doc}")
+        
+        # Handle both list of Documents and list of (Doc, score)
+        docs = []
+        if results and isinstance(results[0], tuple):
+            docs = [r[0] for r in results]
+        else:
+            docs = results
+
+        for i, doc in enumerate(docs, 1):
+            formatted.append(f"[Resultado {i}] {doc.page_content}")
         return "\n\n".join(formatted)
 
-    def _count_tokens(
-        self, text: str
-    ) -> int:  # right-side comment: compatível com uso interno
+    def count_tokens(self, text: str) -> int:
         return len(text.split())
 
 

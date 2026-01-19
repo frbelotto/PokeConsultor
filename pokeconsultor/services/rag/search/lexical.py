@@ -6,6 +6,7 @@ import math
 import re
 from dataclasses import dataclass
 from typing import Iterable, List, Tuple, Any
+from langchain_core.documents import Document
 
 from langchain_chroma import Chroma
 
@@ -14,9 +15,9 @@ from pokeconsultor.services.logger import logger
 
 @dataclass
 class LexicalDoc:
-    """Container for lexical statistics."""
+    """Container for lexical statistics and the original document."""
 
-    content: str
+    doc: Document
     tf: dict[str, float]
     length: int
 
@@ -37,13 +38,13 @@ class SimpleLexicalIndex:
     def _tokenize(text: str) -> list[str]:
         return [t.lower() for t in SimpleLexicalIndex._token_re.findall(text)]
 
-    def build(self, documents: Iterable[str]) -> None:
+    def build(self, documents: Iterable[Document]) -> None:
         self.docs = []
         self.df.clear()
-        for content in documents:
-            tokens = self._tokenize(content)
+        for doc in documents:
+            tokens = self._tokenize(doc.page_content)
             if not tokens:
-                self.docs.append(LexicalDoc(content=content, tf={}, length=0))
+                self.docs.append(LexicalDoc(doc=doc, tf={}, length=0))
                 continue
             tf: dict[str, float] = {}
             for tok in tokens:
@@ -52,7 +53,7 @@ class SimpleLexicalIndex:
                 tf[tok] = 1.0 + math.log(tf[tok])
             for tok in tf.keys():
                 self.df[tok] = self.df.get(tok, 0) + 1
-            self.docs.append(LexicalDoc(content=content, tf=tf, length=len(tokens)))
+            self.docs.append(LexicalDoc(doc=doc, tf=tf, length=len(tokens)))
         self.vocab_size = len(self.df)
         n_docs = max(1, len(self.docs))
         self.idf = {
@@ -61,7 +62,7 @@ class SimpleLexicalIndex:
         self._ready = True
         logger.info("Lexical index built: %d docs, %d terms", len(self.docs), self.vocab_size)
 
-    def search(self, query: str, k: int) -> List[Tuple[str, float]]:
+    def search(self, query: str, k: int) -> List[Tuple[Document, float]]:
         if not self._ready:
             return []
         q_tokens = self._tokenize(query)
@@ -81,7 +82,7 @@ class SimpleLexicalIndex:
                 scores.append((i, s))
         scores.sort(key=lambda x: x[1], reverse=True)
         top = scores[:k]
-        return [(self.docs[i].content, score) for i, score in top]
+        return [(self.docs[i].doc, score) for i, score in top]
 
 
 class LexicalSearcher:
@@ -97,33 +98,30 @@ class LexicalSearcher:
 
     def build_from_vector_store(self, vector_store: Any) -> None:
         """Extract documents from a LangChain or ChromaDB-compatible vector store."""
-        contents: list[str] = []
+        docs: list[Document] = []
         try:
-
             # Tenta extrair documentos do ChromaDB ou outros vector stores compatíveis
-            # ChromaDB geralmente retorna um dicionário com a chave 'documents' ou 'metadatas'
-            result = vector_store.get(include=["documents"])
+            result = vector_store.get(include=["documents", "metadatas"])
             if "documents" in result:
-                docs = result["documents"]
+                contents = result["documents"]
+                metadatas = result.get("metadatas", [{} for _ in contents])
+                
                 # docs pode ser uma lista de listas (ChromaDB) ou lista simples
-                if docs and isinstance(docs[0], list):
+                if contents and isinstance(contents[0], list):
                     # Flatten se necessário
-                    for doc_list in docs:
-                        contents.extend(doc_list)
+                    for i, content_list in enumerate(contents):
+                        for j, content in enumerate(content_list):
+                            # Nota: Se for lista de listas, metadatas também deve ser
+                            meta = metadatas[i][j] if isinstance(metadatas[i], list) else metadatas[i]
+                            docs.append(Document(page_content=content, metadata=meta))
                 else:
-                    contents.extend(docs)
-            elif "metadatas" in result:
-                # Alternativamente, pode-se extrair de metadados se necessário
-                logger.warning("No 'documents' key found, using 'metadatas' as fallback")
-                metadatas = result["metadatas"]
-                for meta in metadatas:
-                    if isinstance(meta, dict) and "content" in meta:
-                        contents.append(meta["content"])
+                    for content, meta in zip(contents, metadatas):
+                        docs.append(Document(page_content=content, metadata=meta))
             else:
-                logger.warning("No 'documents' or 'metadatas' key found in vector store result")
+                logger.warning("No 'documents' key found in vector store result")
         except Exception as exc:
             logger.exception("Failed building lexical index from vector store: %s", exc)
-        self.index.build(contents)
+        self.index.build(docs)
 
-    def search(self, query: str, k: int) -> List[Tuple[str, float]]:
+    def search(self, query: str, k: int) -> List[Tuple[Document, float]]:
         return self.index.search(query, k)
