@@ -18,31 +18,27 @@ SYSTEM_MESSAGE = (
     "⛔ PROIBIDO USAR:\n"
     "• Seu conhecimento pré-existente/treinamento\n"
     "• Informações gerais mesmo que 'óbvias'\n"
-    "• Deduções lógicas não presentes no contexto\n"
     "• Senso comum ou conhecimento do mundo\n"
-    "• Completar lacunas com inferência\n"
-    "• Qualquer coisa além do que está EXPLICITAMENTE no contexto\n"
     "\n"
-    "✅ PERMITIDO APENAS:\n"
-    "• Sintetizar e reorganizar informações do contexto\n"
-    "• Extrair detalhes e contexto relevante para resposta completa\n"
-    "• Referencial cruzado dentro do contexto fornecido\n"
-    "• Estruturar a resposta de forma clara e acessível\n"
-    "• Cite explicitamente as fontes (ex: '(Fonte: nome.pdf, pág. X)')\n"
+    "✅ PERMITIDO E INCENTIVADO:\n"
+    "• **Inferência Lógica Contextual**: Você DEVE realizar deduções lógicas simples se houver evidências no contexto.\n"
+    "   • *Exemplo*: Se o contexto cita que Harry e Gina têm filhos, você pode inferir que são um casal.\n"
+    "• **Transparência de Inferência**: SEMPRE que concluir algo por inferência (não dito explicitamente), você DEVE iniciar o trecho com: \"**Apesar de não ser expresso explicitamente no contexto, é possível presumir que...**\" e então explicar a lógica baseada nos fatos fornecidos.\n"
+    "• Sintetizar e reorganizar informações do contexto.\n"
+    "• Cite explicitamente as fontes (ex: '(Fonte: nome.pdf, pág. X)').\n"
     "\n"
     "## 🎯 ESTRATÉGIA DE RESPOSTA\n"
     "1️⃣ Receba a pergunta\n"
-    "2️⃣ Procure APENAS no contexto fornecido\n"
-    "3️⃣ SE encontrar → Sintetize UMA RESPOSTA COMPLETA usando TUDO do contexto relevante\n"
-    "   • Forneça a resposta direta\n"
-    "   • Inclua TODOS os detalhes, nuances e contexto relacionado\n"
+    "2️⃣ Procure no contexto fornecido (incluindo o que pode ser inferido logicamente)\n"
+    "3️⃣ SE encontrar → Sintetize UMA RESPOSTA COMPLETA\n"
+    "   • Use a frase de transparência se for uma inferência.\n"
     "4️⃣ SE NÃO encontrar → Responda APENAS: 'Não tenho essa informação no contexto fornecido.'\n"
     "\n"
     "## TESTE DE VERDADE\n"
     "Antes de responder, faça estas perguntas:\n"
-    "• Esta informação está no contexto, ainda que de forma implícita? SIM → Responda | NÃO → 'Não tenho essa informação'\n"
-    "• Estou usando algo que aprendi durante meu treinamento? SIM → APAGUE ISSO | NÃO → Continue\n"
-    "• Um humano lendo apenas o contexto entenderia minha resposta da mesma forma? SIM → OK | NÃO → Reescreva\n"
+    "• Esta informação está no contexto (explícita ou implicitamente)? SIM → Responda | NÃO → 'Não tenho essa informação'\n"
+    "• Se for uma inferência, usei a frase obrigatória de transparência? SIM → OK | NÃO → Adicione a frase\n"
+    "• Estou usando algo fora do contexto? SIM → APAGUE | NÃO → Continue\n"
     "\n"
     "## ESTILO\n"
     "- Claro, estruturado e sem jargões desnecessários\n"
@@ -179,13 +175,16 @@ def main():
                     rag_results = rag_service.retrieve(query)
                     
                     if rag_results:
+                        print(f"✅ {len(rag_results)} documentos recuperados de fontes locais.")
                         # Format context for prompt
                         retrieved_context = rag_service.format_results(rag_results)
                         
-                        # Identify which results are in the context (roughly)
-                        # We use a simple check to see if the content is in the formatted context
+                        # Identify which results are in the context (more robustly)
+                        cleaned_context = " ".join(retrieved_context.split())
                         for i, doc in enumerate(rag_results, 1):
-                            if doc.page_content[:50] in retrieved_context:
+                            # Use first 100 chars, normalized whitespace
+                            check_text = " ".join(doc.page_content[:100].split())
+                            if check_text and check_text in cleaned_context:
                                 used_indices.append(i)
 
                 # Generate response

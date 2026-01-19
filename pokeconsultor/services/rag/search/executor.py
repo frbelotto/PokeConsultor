@@ -99,33 +99,43 @@ class HybridExecutor(BaseRetriever):
         self._ensure_cross_encoder()
 
     def _get_relevant_documents(self, query: str) -> List[Document]:
-        """Run hybrid retrieval: lexical + vector, fuse via RRF, optional rerank."""
+        """Run hybrid retrieval for a single query."""
+        return self._get_relevant_documents_multi([query])
+
+    def _get_relevant_documents_multi(self, queries: list[str]) -> List[Document]:
+        """Run hybrid retrieval for multiple queries, fusing results."""
         self._ensure_cross_encoder()
 
         k_lex = self.lexical_k or self.retrieve_k
         k_vec = self.vector_k or self.retrieve_k
 
-        vector_results = self.vector_searcher.search(query, k_vec)
-        lexical_results = self.lexical_searcher.search(query, k_lex)
+        all_vec_pairs: List[Tuple[Document, float]] = []
+        all_lex_pairs: List[Tuple[Document, float]] = []
 
-        if not vector_results and not lexical_results:
+        for q in queries:
+            vector_results = self.vector_searcher.search(q, k_vec)
+            lexical_results = self.lexical_searcher.search(q, k_lex)
+
+            if vector_results:
+                for doc, score in vector_results:
+                    if not isinstance(doc, Document):
+                        all_vec_pairs.append((Document(page_content=str(doc)), float(score)))
+                    else:
+                        all_vec_pairs.append((doc, float(score)))
+
+            if lexical_results:
+                all_lex_pairs.extend(lexical_results)
+
+        if not all_vec_pairs and not all_lex_pairs:
             return []
 
-        # Convert vector results to standard format if needed
-        vec_pairs: List[Tuple[Document, float]] = []
-        for doc, score in vector_results:
-            if not isinstance(doc, Document):
-                # Fallback em caso de erro de tipo inesperado
-                vec_pairs.append((Document(page_content=str(doc)), float(score)))
-            else:
-                vec_pairs.append((doc, float(score)))
-
-        fused = rrf_fuse(vec_pairs, lexical_results, self.rrf_k)
+        fused = rrf_fuse(all_vec_pairs, lexical_pairs=all_lex_pairs, k=self.rrf_k)
         if not fused:
             return []
 
         if self.rerank_k and self.rerank_k > 0:
-            fused = self._rerank_results(query, fused, self.rerank_k)
+            # Rerank against the ORIGINAL query (first in the list)
+            fused = self._rerank_results(queries[0], fused, self.rerank_k)
 
         return [doc for doc, score in fused]
 

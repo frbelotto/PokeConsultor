@@ -21,6 +21,10 @@ from pokeconsultor.services.rag.formatting.tokenizer import TokenizerService
 from pokeconsultor.services.rag.search.executor import HybridExecutor
 from pokeconsultor.services.rag.search.lexical import LexicalSearcher
 from pokeconsultor.services.rag.search.vector import VectorSearcher
+from pokeconsultor.llm.base import llm_profiles
+from langchain.chat_models import init_chat_model
+from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.documents import Document
 
 
 
@@ -81,6 +85,7 @@ class RAGService(BaseModel):
     _lexical_searcher: LexicalSearcher = PrivateAttr()
     _vector_searcher: VectorSearcher = PrivateAttr()
     _tokenizer_service: TokenizerService = PrivateAttr()
+    _expansion_llm: Any = PrivateAttr()
 
     def model_post_init(self, __context: Any) -> None:
         """Initialize internal services with intelligent caching.
@@ -95,6 +100,17 @@ class RAGService(BaseModel):
 
         self._tokenizer_service = TokenizerService(llm_model=self.llm_model)
 
+        # Initialize expansion LLM (using executor profile for speed)
+        executor_profile = llm_profiles.get_profile("executor")
+        api_key = executor_profile.api_key.get_secret_value() if executor_profile.api_key else ""
+        
+        self._expansion_llm = init_chat_model(
+            f"{executor_profile.provider}:{executor_profile.model}",
+            temperature=0,
+            max_tokens=100,
+            api_key=api_key
+        )
+
         # EmbeddingService with cache setting propagated
         self._embedding_service = EmbeddingService(
             data_path=self.data_path,
@@ -104,7 +120,6 @@ class RAGService(BaseModel):
         # Initialize searchers with loaded vector store
         self._vector_searcher = VectorSearcher(self._embedding_service)
         self._lexical_searcher = LexicalSearcher()
-        self._lexical_searcher.build_from_vector_store(self._embedding_service.vector_store)
 
         # Hybrid executor as standard
         self._retriever_service = HybridExecutor(
@@ -121,6 +136,9 @@ class RAGService(BaseModel):
 
         self._load_with_incremental_embedding()
         
+        # Build lexical index AFTER incremental indexing
+        self._lexical_searcher.build_from_vector_store(self._embedding_service.vector_store)
+
         # Start background initialization of heavy models
         threading.Thread(target=self.warmup, daemon=True).start()
 
@@ -244,14 +262,55 @@ class RAGService(BaseModel):
             logger.exception("Error loading file %s", file_path.name)
             return []
 
-    def retrieve(self, query: str) -> List[Document]:
-        """Retrieve relevant documents using hybrid search.
+    def retrieve(self, query: str, expand: bool = True) -> List[Document]:
+        """Retrieve relevant documents using hybrid search with optional expansion."""
+        queries = [query]
+        if expand:
+            try:
+                expanded = self.expand_query(query)
+                if expanded:
+                    queries.extend(expanded)
+                    # We keep the print for user feedback in CLI, but ensure logger has it too
+                    logger.info(f"Query expanded: {expanded}")
+                    print(f"\n✨ CONSULTAS EXPANDIDAS: {', '.join(expanded)}")
+            except Exception:
+                logger.warning("Query expansion failed")
+
+        results = self._retriever_service._get_relevant_documents_multi(queries)
         
-        Returns:
-            List of LangChain Document objects with metadata.
-        """
-        results = self._retriever_service.invoke(query)
+        # Add temporal IDs for tracing in UI/debug
+        for i, doc in enumerate(results, 1):
+            doc.metadata["_temp_id"] = i
+            
         return results
+
+    def expand_query(self, query: str) -> list[str]:
+        """Generate variations of the query to improve retrieval coverage."""
+        prompt = (
+            "Gere 3 variações curtas de busca (keywords) em PORTUGUÊS para a pergunta abaixo.\n"
+            "IMPORTANTE: Use nomes em na linguagem nativa da pergunta (ex: use 'Gina' em vez de 'Ginny').\n"
+            "Inclua termos como 'família', 'filhos', 'esposa/marido' se relevante.\n"
+            "EXEMPLO: 'quem casou com harry?' -> 'Gina Weasley; família Harry Potter; filhos Harry Potter'\n"
+            "RETORNE APENAS AS VARIAÇÕES SEPARADAS POR PONTO E VÍRGULA.\n"
+            "NÃO ADICIONE EXPLICAÇÕES OU PREÂMBULOS.\n"
+            f"Pergunta: {query}"
+        )
+        
+        try:
+            response = self._expansion_llm.invoke([
+                SystemMessage(content="Você é um motor de busca. Retorne apenas keywords."),
+                HumanMessage(content=prompt)
+            ])
+            
+            content = str(response.content).strip()
+            if ":" in content and len(content.split(":")[0]) < 30:
+                content = content.split(":", 1)[1].strip()
+
+            variations = [v.strip() for v in content.split(";") if v.strip()]
+            return variations[:3]
+        except Exception:
+            logger.exception("Failed to expand query")
+            return []
 
     def format_results(
         self,
