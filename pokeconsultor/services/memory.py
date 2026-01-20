@@ -64,8 +64,8 @@ class ConversationMemory:
         """
         return self.messages.copy()
 
-    def get_messages_for_llm(self) -> list[dict[str, str]]:
-        """Get messages formatted for LLM API calls.
+    def get_history(self) -> list[dict[str, str]]:
+        """Get messages formatted for LLM API calls and display.
 
         Returns:
             List of dictionaries with 'role' and 'content' keys.

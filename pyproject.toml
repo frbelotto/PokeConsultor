@@ -19,6 +19,7 @@ dependencies = [
     "numpy>=1.26.0",
     "langchain-chroma>=1.1.0",
     "torch>=2.4.0, <2.6.0",
+    "pyside6>=6.10.1",
 ]
 
 [tool.setuptools]

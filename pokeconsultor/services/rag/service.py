@@ -271,7 +271,7 @@ class RAGService(BaseModel):
                 if expanded:
                     queries.extend(expanded)
                     # We keep the print for user feedback in CLI, but ensure logger has it too
-                    logger.info(f"Query expanded: {expanded}")
+                    logger.debug(f"Query expanded: {expanded}")
                     print(f"\n✨ CONSULTAS EXPANDIDAS: {', '.join(expanded)}")
             except Exception:
                 logger.warning("Query expansion failed")

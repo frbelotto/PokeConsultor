@@ -38,6 +38,7 @@ class AIAgent(BaseModel):
             **init_kwargs,
         )
 
+
     def respond(self, request: LLMRequest) -> str:
         """Generate a chat response using memory context and optional RAG.
 
