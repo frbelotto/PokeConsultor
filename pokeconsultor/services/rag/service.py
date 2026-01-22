@@ -112,9 +112,12 @@ class RAGService(BaseModel):
         )
 
         # EmbeddingService with cache setting propagated
+        # EmbeddingService with cache setting propagated. Inject shared
+        # TokenizerService to avoid duplicate tokenizer loads.
         self._embedding_service = EmbeddingService(
             data_path=self.data_path,
             use_cache=self.use_cache,
+            tokenizer_service=self._tokenizer_service,
         )
 
         # Initialize searchers with loaded vector store

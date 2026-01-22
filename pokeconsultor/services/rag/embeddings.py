@@ -54,10 +54,15 @@ class EmbeddingService(BaseModel):
         description="HuggingFace embedding model for semantic search",
     )
 
+    tokenizer_service: TokenizerService = Field(
+        description="Optional shared TokenizerService instance (useful to inject a single instance)",
+    )
+
     _vector_store: Chroma = PrivateAttr()
     _embeddings: Any = PrivateAttr()
-    _tokenizer_service: TokenizerService = PrivateAttr()
     _cache_key: str = PrivateAttr()
+
+
 
     def model_post_init(self, __context: Any) -> None:
         """Initialize embeddings and load data after validation."""
@@ -88,7 +93,7 @@ class EmbeddingService(BaseModel):
             model_name=self.embedding_model,
             model_kwargs={"device": device},
         )
-        self._tokenizer_service = TokenizerService()
+
         self._vector_store = self.configure_vector_store()
 
 
@@ -245,8 +250,7 @@ class EmbeddingService(BaseModel):
     def _count_size(self, text: str) -> int:
         """Count size in tokens or characters based on configuration."""
         if self.use_token_counting:
-            assert self._tokenizer_service is not None
-            return self._tokenizer_service.count_tokens(text)
+            return self.tokenizer_service.count_tokens(text)
         return len(text)
 
 
