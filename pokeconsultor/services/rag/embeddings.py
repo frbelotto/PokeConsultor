@@ -66,9 +66,27 @@ class EmbeddingService(BaseModel):
         self._configure_torch_threads()
         logger.info("Loading embedding model...")
 
+        # Auto-detect available GPU (CUDA/HIP/ROCm) and fall back to CPU
+        device = "cpu"
+        try:
+            # torch.cuda.is_available() works for both CUDA and ROCm builds
+            if torch.cuda.is_available() and torch.cuda.device_count() > 0:
+                device = "cuda"
+            # Fallback: if hip attribute exists and cuda not available, prefer cuda semantics when devices exist
+            elif getattr(torch.version, "hip", None):
+                try:
+                    if torch.cuda.device_count() > 0:
+                        device = "cuda"
+                except Exception:
+                    device = "cpu"
+        except Exception:
+            device = "cpu"
+
+        logger.info("Using device '%s' for embedding model", device)
+
         self._embeddings = HuggingFaceEmbeddings(
             model_name=self.embedding_model,
-            model_kwargs={"device": "cpu"},
+            model_kwargs={"device": device},
         )
         self._tokenizer_service = TokenizerService()
         self._vector_store = self.configure_vector_store()
