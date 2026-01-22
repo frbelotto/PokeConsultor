@@ -4,18 +4,16 @@ import os
 from pathlib import Path
 from typing import Any
 
-
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_core.documents import Document
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
-import torch
 import chromadb
+import torch
+from langchain_chroma import Chroma
+from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from pokeconsultor.config import settings
-from pokeconsultor.services.data_loaders.factory import LoaderFactory
 from pokeconsultor.services.logger import logger
 from pokeconsultor.services.rag.formatting.tokenizer import TokenizerService
-from langchain_chroma import Chroma
 
 # Embedding model limits (multilingual-e5-large has 512 token max)
 EMBEDDING_MAX_TOKENS = 500  # Safety margin below 512
@@ -23,7 +21,6 @@ EMBEDDING_MAX_CHARS = 1800  # ~3.6 chars/token average for multilingual
 
 
 class EmbeddingService(BaseModel):
-
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
     data_path: Path
@@ -53,7 +50,6 @@ class EmbeddingService(BaseModel):
         default="intfloat/multilingual-e5-large",
         description="HuggingFace embedding model for semantic search",
     )
-
     tokenizer_service: TokenizerService = Field(
         description="Optional shared TokenizerService instance (useful to inject a single instance)",
     )
@@ -61,8 +57,6 @@ class EmbeddingService(BaseModel):
     _vector_store: Chroma = PrivateAttr()
     _embeddings: Any = PrivateAttr()
     _cache_key: str = PrivateAttr()
-
-
 
     def model_post_init(self, __context: Any) -> None:
         """Initialize embeddings and load data after validation."""
@@ -96,28 +90,26 @@ class EmbeddingService(BaseModel):
 
         self._vector_store = self.configure_vector_store()
 
-
     def configure_vector_store(self) -> Chroma:
         # User requested: .cache/chromadb
         persist_path = settings.CACHE_DIR / "chroma"
         persist_path.mkdir(parents=True, exist_ok=True)
-        
+
         logger.info(f"Connecting to ChromaDB at {persist_path}")
-        
+
         client = chromadb.PersistentClient(path=str(persist_path))
-        
+
         vector_store = Chroma(
             client=client,
             collection_name=settings.CHROMA_COLLECTION_NAME,
             embedding_function=self._embeddings,
         )
         return vector_store
-    
+
     @property
     def vector_store(self) -> Chroma:
         """Public accessor for the internal vector store."""
         return self._vector_store
-
 
     def _configure_torch_threads(self) -> None:
         """Configure PyTorch to use all available CPU threads."""
@@ -127,14 +119,18 @@ class EmbeddingService(BaseModel):
             torch.set_num_interop_threads(max_threads)
             logger.info("Torch threads configured: %d", max_threads)
         except Exception:
-            logger.exception("Failed to configure torch threads")  # Log error when configuring threads
+            logger.exception(
+                "Failed to configure torch threads"
+            )  # Log error when configuring threads
 
-    def add_file_embeddings(self, file_path: Path, chunks: list[Document], file_hash: str) -> None:
+    def add_file_embeddings(
+        self, file_path: Path, chunks: list[Document], file_hash: str
+    ) -> None:
         """Add embeddings for a file, associating each chunk with the file hash and path."""
         for doc in chunks:
             doc.metadata["file_hash"] = file_hash
             doc.metadata["file_path"] = str(file_path)
-            
+
         self.vector_store.add_documents(chunks)
         # Persistência automática pelo ChromaDB
 
@@ -153,36 +149,10 @@ class EmbeddingService(BaseModel):
             if meta and "file_hash" in meta:
                 hashes.add(meta["file_hash"])
         return hashes
-  
-    def _load_documents_from_source(self) -> list[str]:
-        """Load documents from all supported files in data path."""
-        source_files = self._discover_source_files()
-
-        if not source_files:
-            logger.warning("No supported files found")
-            return []
-
-        documents: list[str] = []
-
-        for file_path in source_files:
-            try:
-                loader = LoaderFactory.get_loader(file_path)
-                file_docs = loader.load(file_path)
-                if file_docs:
-                    documents.extend(file_docs)
-                logger.info("Loaded %d docs from %s", len(file_docs), file_path.name)
-            except Exception:
-                logger.exception("Error loading %s", file_path.name)
-                raise
-
-        logger.info(
-            "Total: %d documents from %d files", len(documents), len(source_files)
-        )
-        return documents
 
     def chunk_documents(self, documents: list[Document]) -> list[Document]:
         """Split documents into overlapping chunks for better retrieval.
-        
+
         Public method to allow external services to use the same chunking logic.
         """
         if not documents:
@@ -225,7 +195,7 @@ class EmbeddingService(BaseModel):
         """Semantic chunking using RecursiveCharacterTextSplitter with sentence priorities."""
         # Define separators to prioritize: paragraphs -> sentences -> words
         separators = ["\n\n", "\n", r"(?<=\. )", r"(?<=\! )", r"(?<=\? )", " ", ""]
-        
+
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=self.chunk_size,
             chunk_overlap=self.chunk_overlap,
@@ -252,11 +222,3 @@ class EmbeddingService(BaseModel):
         if self.use_token_counting:
             return self.tokenizer_service.count_tokens(text)
         return len(text)
-
-
-
-
-
-
-
-

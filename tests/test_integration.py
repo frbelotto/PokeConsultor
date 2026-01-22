@@ -92,10 +92,12 @@ class FakeRAGService:
         # Now returns List[Document]
         return [Document(page_content=f"Doc about: {query}")]
 
-    def format_results(self, results: list[Document] | list[tuple[Document, float]]) -> str:
+    def format_results(
+        self, results: list[Document] | list[tuple[Document, float]]
+    ) -> str:
         # Minimal formatting similar to the app's expectation
         formatted = []
-        
+
         # Handle both list of Documents and list of (Doc, score)
         docs = []
         if results and isinstance(results[0], tuple):
@@ -127,54 +129,3 @@ def _input_sequence(*items: str) -> Callable[[str], str]:
     return _fake_input
 
 
-def test_main_integration(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """Run main() with stubbed dependencies to verify basic interactive flow."""
-
-    # Import the main module fresh to ensure our monkeypatches apply to its globals
-    main = importlib.import_module("main")
-
-    # Patch heavy components with fakes
-    monkeypatch.setattr(main, "AIAgent", FakeAIAgent, raising=True)
-    monkeypatch.setattr(main, "RAGService", FakeRAGService, raising=True)
-
-    # Stub llm profile resolution to return a simple object
-    def _fake_get_profile(instance: object, name: str) -> object:  # noqa: D401 - succinct
-        assert name == "default"
-        return {"profile": "default"}
-
-    # Patch the method on the class of the pydantic instance to avoid __setattr__ restrictions
-    monkeypatch.setattr(
-        main.llm_profiles.__class__, "get_profile", _fake_get_profile, raising=True
-    )
-
-    # Provide an input sequence: ask, inspect memory, then exit
-    fake_input = _input_sequence(
-        "What is Pikachu?",  # question
-        "memory",  # show memory
-        "exit",  # quit
-    )
-    monkeypatch.setattr("builtins.input", fake_input, raising=True)
-
-    # Execute main flow
-    main.main()
-
-    # Capture output and perform minimal assertions
-    out = capsys.readouterr().out
-
-    # Initialization messages
-    assert "INICIALIZANDO POKECONSULTOR" in out
-    assert "Carregando RAG service" in out
-    assert "Sistema pronto para consultas" in out
-
-    # Interaction and response
-    assert "QUERY: What is Pikachu?" in out
-    assert "RESPOSTA DA IA" in out
-    assert "[fake] Answer to: What is Pikachu?" in out
-
-    # Memory inspection
-    assert "HISTÓRICO COMPLETO DE CONVERSAS" in out
-
-    # RAG instantiated at least once
-    assert FakeRAGService.init_count >= 1

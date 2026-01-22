@@ -52,6 +52,7 @@ def valid_settings_data() -> dict:
         "GROQ_API_KEY": "gsk_test_key",
         "POKEAPI_MCP_SERVER_URL": "http://localhost:8000",
         "DATA_PATH": "data/",
+        "CACHE_DIR": ".cache",
     }
 
 

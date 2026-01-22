@@ -56,7 +56,7 @@ def test_get_messages_for_llm_format(conversation_memory: ConversationMemory) ->
     conversation_memory.add_system_message("System guidance")
     conversation_memory.add_user_message("Question")
 
-    formatted = conversation_memory.get_messages_for_llm()
+    formatted = conversation_memory.get_history()
 
     assert formatted == [
         {"role": MessageRole.SYSTEM.value, "content": "System guidance"},
