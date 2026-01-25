@@ -60,7 +60,9 @@ class SimpleLexicalIndex:
             tok: math.log((n_docs + 1) / (df + 1)) + 1.0 for tok, df in self.df.items()
         }
         self._ready = True
-        logger.info("Lexical index built: %d docs, %d terms", len(self.docs), self.vocab_size)
+        logger.info(
+            "Lexical index built: %d docs, %d terms", len(self.docs), self.vocab_size
+        )
 
     def search(self, query: str, k: int) -> List[Tuple[Document, float]]:
         if not self._ready:
@@ -91,7 +93,6 @@ class LexicalSearcher:
     def __init__(self) -> None:
         self.index = SimpleLexicalIndex()
         self.vector_store: Chroma
-        
 
     def build_from_documents(self, documents: Iterable[str]) -> None:
         self.index.build(documents)
@@ -105,14 +106,18 @@ class LexicalSearcher:
             if "documents" in result:
                 contents = result["documents"]
                 metadatas = result.get("metadatas", [{} for _ in contents])
-                
+
                 # docs pode ser uma lista de listas (ChromaDB) ou lista simples
                 if contents and isinstance(contents[0], list):
                     # Flatten se necessário
                     for i, content_list in enumerate(contents):
                         for j, content in enumerate(content_list):
                             # Nota: Se for lista de listas, metadatas também deve ser
-                            meta = metadatas[i][j] if isinstance(metadatas[i], list) else metadatas[i]
+                            meta = (
+                                metadatas[i][j]
+                                if isinstance(metadatas[i], list)
+                                else metadatas[i]
+                            )
                             docs.append(Document(page_content=content, metadata=meta))
                 else:
                     for content, meta in zip(contents, metadatas):

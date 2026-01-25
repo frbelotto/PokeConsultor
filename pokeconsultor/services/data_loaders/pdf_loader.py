@@ -41,7 +41,7 @@ class PDFLoader(DataLoader):
 
             with pdfplumber.open(file_path) as pdf:
                 total_pages = len(pdf.pages)
-                
+
                 # Extract PDF metadata
                 pdf_metadata = {}
                 if pdf.metadata:
@@ -63,7 +63,7 @@ class PDFLoader(DataLoader):
                             "source": file_path.name,
                             "page_number": page_num,
                             "total_pages": total_pages,
-                            **pdf_metadata
+                            **pdf_metadata,
                         }
                         documents.append(Document(page_content=text, metadata=metadata))
                     else:

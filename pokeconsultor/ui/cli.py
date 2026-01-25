@@ -13,13 +13,10 @@ class PokeConsultorCLI:
     """Terminal-based interface for PokeConsultor."""
 
     def __init__(self, agent, rag_service):
-        # Keep the agent wrapper (AIAgent) so we can access its memory
-        # and implementation details. Store the underlying chat model
-        # separately for direct invocations.
         self.agent = agent
         self.rag_service = rag_service
         self.debug_mode = False
-        self.use_rag = False
+        self.use_rag = True
 
     def print_header(self):
         """Print the application header."""
@@ -164,7 +161,6 @@ class PokeConsultorCLI:
                         )
                     )
                 request = request.format_prompt().to_messages()
-                # Invoke the underlying chat model; keep memory on the agent wrapper.
                 response_text = self.agent.respond(request)
                 counter += 1
 

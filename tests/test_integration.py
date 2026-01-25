@@ -127,5 +127,3 @@ def _input_sequence(*items: str) -> Callable[[str], str]:
             return "exit"
 
     return _fake_input
-
-

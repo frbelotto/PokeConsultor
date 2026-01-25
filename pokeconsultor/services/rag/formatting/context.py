@@ -52,7 +52,7 @@ def _format_compact(
 
         content = item.page_content if isinstance(item, Document) else item
         source = _get_source_label(item)
-            
+
         header = f"[{i + 1}]{source} "
         header_tokens = tokenizer_service.count_tokens(header)
 
@@ -107,17 +107,17 @@ def _get_source_label(item: Union[Document, str]) -> str:
     """Extract descriptive source label from Document metadata."""
     if not isinstance(item, Document):
         return ""
-    
+
     filename = item.metadata.get("file_path", "unknown").split("/")[-1]
     page = item.metadata.get("page_number")
     row = item.metadata.get("row_number")
-    
+
     ref = filename
     if page:
         ref += f", pág. {page}"
     if row:
         ref += f", linha {row}"
-        
+
     return f" (Fonte: {ref})"
 
 

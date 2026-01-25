@@ -60,7 +60,9 @@ class HybridExecutor(BaseRetriever):
     vector_searcher: VectorSearcher
     tokenizer_service: TokenizerService
 
-    retrieve_k: int = Field(default=10, gt=0, description="Top-K to retrieve from each retriever")
+    retrieve_k: int = Field(
+        default=10, gt=0, description="Top-K to retrieve from each retriever"
+    )
     lexical_k: int | None = Field(default=None, description="Override K for lexical")
     vector_k: int | None = Field(default=None, description="Override K for vector")
     rrf_k: int = Field(default=60, gt=0, description="RRF constant")
@@ -119,7 +121,9 @@ class HybridExecutor(BaseRetriever):
             if vector_results:
                 for doc, score in vector_results:
                     if not isinstance(doc, Document):
-                        all_vec_pairs.append((Document(page_content=str(doc)), float(score)))
+                        all_vec_pairs.append(
+                            (Document(page_content=str(doc)), float(score))
+                        )
                     else:
                         all_vec_pairs.append((doc, float(score)))
 
@@ -141,7 +145,7 @@ class HybridExecutor(BaseRetriever):
 
     def retrieve(self, query: str) -> list[tuple[str, float]]:
         """Deprecated: use invoke() or _get_relevant_documents.
-        
+
         Maintaining for backward compatibility during transition.
         """
         docs = self.invoke(query)
@@ -158,7 +162,9 @@ class HybridExecutor(BaseRetriever):
                 raise RuntimeError(
                     "Cross-encoder reranker not initialized; check dependencies."
                 )
-            pairs: List[Tuple[str, str]] = [(query, doc.page_content) for doc, _ in results]
+            pairs: List[Tuple[str, str]] = [
+                (query, doc.page_content) for doc, _ in results
+            ]
             scores = list(self._cross_encoder.score(pairs))
             order = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
             top = order[:rerank_k]
@@ -191,9 +197,11 @@ class HybridExecutor(BaseRetriever):
     ) -> str:
         # Handle both list of Documents and list of (Doc, score)
         if results and isinstance(results[0], tuple):
-            formatted_results = results # format_context handles tuples
+            formatted_results = results  # format_context handles tuples
         else:
             # format_context expects List[Tuple[Document | str, float]]
             formatted_results = [(doc, 1.0) for doc in results]
-            
-        return format_context(formatted_results, self.tokenizer_service, max_tokens, compact)
+
+        return format_context(
+            formatted_results, self.tokenizer_service, max_tokens, compact
+        )

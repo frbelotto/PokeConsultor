@@ -2,27 +2,41 @@
 
 import sys
 import threading
-from typing import Counter
-from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QTextEdit, QLineEdit, QPushButton, QCheckBox, QLabel, QSplitter,
-    QMenuBar, QMenu, QDialog, QMessageBox
-)
-from PySide6.QtCore import Qt, Signal, QObject, QUrl
-from PySide6.QtGui import QTextCursor, QFont, QDesktopServices, QAction
 
-from pokeconsultor.llm.prompts import SYSTEM_MESSAGE
 from langchain.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
+from PySide6.QtCore import QObject, Qt, QUrl, Signal
+from PySide6.QtGui import QAction, QDesktopServices, QFont, QTextCursor
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMenu,
+    QMenuBar,
+    QPushButton,
+    QSplitter,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+from pokeconsultor.llm.prompts import SYSTEM_MESSAGE
+
 
 class WorkerSignals(QObject):
     """Signals for the background worker."""
+
     response_ready = Signal(str, list, str, list)
     error_occurred = Signal(str)
 
+
 class PokeConsultorGUI(QMainWindow):
     """PySide6 interface for PokeConsultor."""
-    
+
     def __init__(self, agent, rag_service):
         super().__init__()
         self.agent = agent
@@ -30,8 +44,8 @@ class PokeConsultorGUI(QMainWindow):
         self.signals = WorkerSignals()
         self.signals.response_ready.connect(self._on_response_ready)
         self.signals.error_occurred.connect(self._on_error)
-        self.counter :int= 0
-        
+        self.counter: int = 0
+
         self.init_ui()
 
     def init_ui(self):
@@ -46,63 +60,63 @@ class PokeConsultorGUI(QMainWindow):
 
         # Splitter for Chat and Debug
         self.splitter = QSplitter(Qt.Horizontal)
-        
+
         # --- Left Side: Chat ---
         chat_container = QWidget()
         chat_layout = QVBoxLayout(chat_container)
-        
+
         # Chat Display
         self.chat_display = QTextEdit()
         self.chat_display.setReadOnly(True)
         self.chat_display.setFont(QFont("Arial", 11))
         chat_layout.addWidget(self.chat_display)
-        
+
         # Input Area
         input_layout = QHBoxLayout()
         self.input_field = QLineEdit()
         self.input_field.setPlaceholderText("Faça sua pergunta...")
         self.input_field.returnPressed.connect(self.send_message)
         input_layout.addWidget(self.input_field)
-        
+
         self.send_button = QPushButton("Enviar")
         self.send_button.clicked.connect(self.send_message)
         input_layout.addWidget(self.send_button)
         chat_layout.addLayout(input_layout)
-        
+
         # --- Right Side: Debug/Context (Side Panel) ---
         self.side_panel = QWidget()
         self.side_layout = QVBoxLayout(self.side_panel)
-        
+
         self.side_label = QLabel("🔍 Informações de Contexto / Debug")
         self.side_label.setStyleSheet("font-weight: bold; font-size: 14px;")
         self.side_layout.addWidget(self.side_label)
-        
+
         self.debug_display = QTextEdit()
         self.debug_display.setReadOnly(True)
         self.debug_display.setFont(QFont("Courier New", 10))
         self.side_layout.addWidget(self.debug_display)
-        
+
         self.splitter.addWidget(chat_container)
         self.splitter.addWidget(self.side_panel)
         self.splitter.setStretchFactor(0, 3)
         self.splitter.setStretchFactor(1, 2)
-        
+
         main_layout.addWidget(self.splitter)
-        
+
         # --- Bottom Toolbar: Toggles ---
         toolbar_layout = QHBoxLayout()
-        
+
         self.rag_checkbox = QCheckBox("Usar RAG")
         self.rag_checkbox.setChecked(True)
         toolbar_layout.addWidget(self.rag_checkbox)
-        
+
         self.debug_checkbox = QCheckBox("Modo Debug")
         self.debug_checkbox.setChecked(True)
         self.debug_checkbox.stateChanged.connect(self._toggle_debug_panel)
         toolbar_layout.addWidget(self.debug_checkbox)
-        
+
         toolbar_layout.addStretch()
-        
+
         button_style = """
             QPushButton {
                 padding: 0 15px;
@@ -117,24 +131,26 @@ class PokeConsultorGUI(QMainWindow):
         self.help_button = QPushButton("Ajuda")
         self.help_button.setCursor(Qt.PointingHandCursor)
         self.help_button.setStyleSheet(button_style)
-        
+
         help_menu = QMenu(self)
         help_menu.addAction("Manual (README)", self.show_help)
         help_menu.addAction("Código Fonte (GitHub)", self.open_repo)
         self.help_button.setMenu(help_menu)
         toolbar_layout.addWidget(self.help_button)
-        
+
         # Clear Memory Button
         self.clear_mem_button = QPushButton("Limpar Memória")
         self.clear_mem_button.setCursor(Qt.PointingHandCursor)
         self.clear_mem_button.setStyleSheet(button_style)
         self.clear_mem_button.clicked.connect(self.clear_memory)
         toolbar_layout.addWidget(self.clear_mem_button)
-        
+
         main_layout.addLayout(toolbar_layout)
 
         # Initial message
-        self._append_chat("🤖 <b>Sistema pronto!</b> Faça suas perguntas sobre Pokémon.", "system")
+        self._append_chat(
+            "🤖 <b>Sistema pronto!</b> Faça suas perguntas sobre Pokémon.", "system"
+        )
 
     def show_help(self):
         """Show the help dialog with README content."""
@@ -147,18 +163,18 @@ class PokeConsultorGUI(QMainWindow):
         dialog = QDialog(self)
         dialog.setWindowTitle("Ajuda - PokeConsultor")
         dialog.resize(800, 600)
-        
+
         layout = QVBoxLayout(dialog)
-        
+
         text_edit = QTextEdit()
         text_edit.setReadOnly(True)
         text_edit.setPlainText(readme_content)
         layout.addWidget(text_edit)
-        
+
         close_button = QPushButton("Fechar")
         close_button.clicked.connect(dialog.accept)
         layout.addWidget(close_button)
-        
+
         dialog.exec()
 
     def open_repo(self):
@@ -173,7 +189,7 @@ class PokeConsultorGUI(QMainWindow):
         """Append text to the chat display."""
         # Use system text color as default
         default_color = self.palette().color(self.foregroundRole()).name()
-        
+
         if sender == "user":
             color = "#3498db"  # A bright blue that works in both modes
             prefix = "👤 <b>Você:</b> "
@@ -183,7 +199,7 @@ class PokeConsultorGUI(QMainWindow):
         else:
             color = "#888888"
             prefix = ""
-            
+
         self.chat_display.append(f"<div style='color: {color};'>{prefix}{text}</div>")
         self.chat_display.moveCursor(QTextCursor.End)
 
@@ -196,9 +212,9 @@ class PokeConsultorGUI(QMainWindow):
         self.input_field.clear()
         self.input_field.setEnabled(False)
         self.send_button.setEnabled(False)
-        
+
         self._append_chat(query, "user")
-        
+
         # Run processing in a thread
         thread = threading.Thread(target=self._process_query, args=(query,))
         thread.daemon = True
@@ -208,7 +224,7 @@ class PokeConsultorGUI(QMainWindow):
         """Background thread to process the query."""
         try:
             use_rag = self.rag_checkbox.isChecked()
-            
+
             rag_results = []
             retrieved_context = ""
             used_indices = []
@@ -223,7 +239,7 @@ class PokeConsultorGUI(QMainWindow):
                         if check_text and check_text in cleaned_context:
                             used_indices.append(i)
 
-            if counter == 0:
+            if self.counter == 0:
                 request = ChatPromptTemplate.from_messages(
                     [
                         SYSTEM_MESSAGE,
@@ -234,33 +250,49 @@ class PokeConsultorGUI(QMainWindow):
                 request = ChatPromptTemplate.from_messages(
                     [HumanMessage(content=query)]
                 )
-            if self.use_rag:
+            if use_rag:
                 request.append(
                     HumanMessage(
                         content="Para responder a questão, saiba que o contexto relevante é: "
                         + retrieved_context
                     )
                 )
-            
+
+            request = request.format_prompt().to_messages()
             response_text = self.agent.respond(request)
-            counter += 1
-            
+            self.counter += 1
+
+            # Garantir que a resposta seja string
+            if not isinstance(response_text, str):
+                try:
+                    response_text = str(response_text.content)
+                except Exception as e:
+                    response_text = f"[ERRO ao converter resposta da IA: {e}]"
+
             # Format debug info
-            debug_info = self._format_debug_info(rag_results, retrieved_context, used_indices)
-            
-            self.signals.response_ready.emit(response_text, rag_results, retrieved_context, used_indices)
-            
+            self.debug_info = self._format_debug_info(
+                rag_results, retrieved_context, used_indices
+            )
+
+            self.signals.response_ready.emit(
+                response_text, rag_results, retrieved_context, used_indices
+            )
+
         except Exception as e:
             self.signals.error_occurred.emit(str(e))
 
-    def _on_response_ready(self, response_text, rag_results, retrieved_context, used_indices):
+    def _on_response_ready(
+        self, response_text, rag_results, retrieved_context, used_indices
+    ):
         """Handle UI update when response is ready."""
         self._append_chat(response_text, "ai")
-        
+
         # Update debug panel
-        debug_text = self._format_debug_info(rag_results, retrieved_context, used_indices)
+        debug_text = self._format_debug_info(
+            rag_results, retrieved_context, used_indices
+        )
         self.debug_display.setPlainText(debug_text)
-        
+
         self.input_field.setEnabled(True)
         self.send_button.setEnabled(True)
         self.input_field.setFocus()
@@ -276,15 +308,17 @@ class PokeConsultorGUI(QMainWindow):
         output = []
         output.append("=== STAGE 1: DOCUMENTOS RECUPERADOS ===")
         output.append(f"Total: {len(rag_results)}\n")
-        
+
         for i, doc in enumerate(rag_results, 1):
             filename = doc.metadata.get("file_path", "unknown").split("/")[-1]
             page = doc.metadata.get("page_number")
             row = doc.metadata.get("row_number")
             ref = filename
-            if page: ref += f" (pág. {page})"
-            elif row: ref += f" (linha {row})"
-            
+            if page:
+                ref += f" (pág. {page})"
+            elif row:
+                ref += f" (linha {row})"
+
             in_context = " [SENT]" if i in used_indices else ""
             output.append(f"[{i:2d}]{in_context} {ref}")
             output.append(f"   {doc.page_content[:100]}...\n")
@@ -297,7 +331,7 @@ class PokeConsultorGUI(QMainWindow):
             output.append(retrieved_context)
         else:
             output.append("Nenhum contexto enviado.")
-            
+
         return "\n".join(output)
 
     def clear_memory(self):
@@ -306,6 +340,7 @@ class PokeConsultorGUI(QMainWindow):
         self.chat_display.clear()
         self.debug_display.clear()
         self._append_chat("🧠 Memória e histórico limpos!", "system")
+
 
 def run_gui(agent, rag_service):
     """Entry point for the GUI version."""

@@ -5,6 +5,7 @@ with rank fusion (RRF) and optional reranking for improved precision.
 
 Implements intelligent caching with incremental embedding support through
 """
+
 import hashlib
 from pathlib import Path
 import threading
@@ -27,11 +28,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.documents import Document
 
 
-
-
 class RAGService(BaseModel):
-    
-
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
     # Data source configuration
@@ -89,7 +86,7 @@ class RAGService(BaseModel):
 
     def model_post_init(self, __context: Any) -> None:
         """Initialize internal services with intelligent caching.
-        
+
         Implements incremental embedding workflow:
         1. Load existing database to see which files were previously embedded
         2. Scan data_path to find current files
@@ -102,13 +99,17 @@ class RAGService(BaseModel):
 
         # Initialize expansion LLM (using executor profile for speed)
         executor_profile = llm_profiles.get_profile("executor")
-        api_key = executor_profile.api_key.get_secret_value() if executor_profile.api_key else ""
-        
+        api_key = (
+            executor_profile.api_key.get_secret_value()
+            if executor_profile.api_key
+            else ""
+        )
+
         self._expansion_llm = init_chat_model(
             f"{executor_profile.provider}:{executor_profile.model}",
             temperature=0,
             max_tokens=100,
-            api_key=api_key
+            api_key=api_key,
         )
 
         # EmbeddingService with cache setting propagated
@@ -138,9 +139,11 @@ class RAGService(BaseModel):
         )
 
         self._load_with_incremental_embedding()
-        
+
         # Build lexical index AFTER incremental indexing
-        self._lexical_searcher.build_from_vector_store(self._embedding_service.vector_store)
+        self._lexical_searcher.build_from_vector_store(
+            self._embedding_service.vector_store
+        )
 
         # Start background initialization of heavy models
         threading.Thread(target=self.warmup, daemon=True).start()
@@ -151,11 +154,10 @@ class RAGService(BaseModel):
         hasher = hashlib.sha256()
         hasher.update(file_path.read_bytes())
         return hasher.hexdigest()
-    
 
     def _load_with_incremental_embedding(self) -> None:
         """Intelligently load documents using manifest tracking.
-        
+
         1. Scan current files
         2. Check existing data folder for each file
         3. Identify NEW, or DELETED files
@@ -195,11 +197,12 @@ class RAGService(BaseModel):
             logger.info(f"Embedding {len(files_to_embed)} new/modified files...")
             for file_path in files_to_embed:
                 chunks = self._load_and_chunk_single_file(file_path)
-                self._embedding_service.add_file_embeddings(file_path, chunks, self.calculate_file_hash(file_path))
+                self._embedding_service.add_file_embeddings(
+                    file_path, chunks, self.calculate_file_hash(file_path)
+                )
         else:
             logger.info("No new or modified files to embed.")
 
-    
     def _discover_source_files(self) -> list[Path]:
         """Discover all supported source files."""
         if self.data_path.is_file():
@@ -220,12 +223,12 @@ class RAGService(BaseModel):
 
     def _load_and_chunk_single_file(self, file_path: Path) -> list[Document]:
         """Load and chunk a single file with enriched metadata.
-        
+
         Delegates chunking to EmbeddingService to ensure consistent parameters.
-        
+
         Args:
             file_path: Path to the file to load and chunk
-            
+
         Returns:
             List of text chunks as Document objects
         """
@@ -233,26 +236,26 @@ class RAGService(BaseModel):
             # Load the file
             loader = LoaderFactory.get_loader(file_path)
             raw_docs = loader.load(file_path)
-            
+
             if not raw_docs:
                 logger.warning("No content loaded from %s", file_path.name)
                 return []
-            
+
             # Enrich with OS-level stats
             stats = file_path.stat()
             file_stats = {
                 "file_path": str(file_path),
                 "file_size": stats.st_size,
                 "last_modified": datetime.fromtimestamp(stats.st_mtime).isoformat(),
-                "file_extension": file_path.suffix.lower()
+                "file_extension": file_path.suffix.lower(),
             }
-            
+
             for doc in raw_docs:
                 doc.metadata.update(file_stats)
-            
+
             # Delegate chunking to EmbeddingService (single source of truth)
             chunked = self._embedding_service.chunk_documents(raw_docs)
-            
+
             logger.info(
                 "Loaded and chunked %s: %d chunks from %d raw docs",
                 file_path.name,
@@ -260,7 +263,7 @@ class RAGService(BaseModel):
                 len(raw_docs),
             )
             return chunked
-            
+
         except Exception:
             logger.exception("Error loading file %s", file_path.name)
             return []
@@ -280,11 +283,11 @@ class RAGService(BaseModel):
                 logger.warning("Query expansion failed")
 
         results = self._retriever_service._get_relevant_documents_multi(queries)
-        
+
         # Add temporal IDs for tracing in UI/debug
         for i, doc in enumerate(results, 1):
             doc.metadata["_temp_id"] = i
-            
+
         return results
 
     def expand_query(self, query: str) -> list[str]:
@@ -298,13 +301,17 @@ class RAGService(BaseModel):
             "NÃO ADICIONE EXPLICAÇÕES OU PREÂMBULOS.\n"
             f"Pergunta: {query}"
         )
-        
+
         try:
-            response = self._expansion_llm.invoke([
-                SystemMessage(content="Você é um motor de busca. Retorne apenas keywords."),
-                HumanMessage(content=prompt)
-            ])
-            
+            response = self._expansion_llm.invoke(
+                [
+                    SystemMessage(
+                        content="Você é um motor de busca. Retorne apenas keywords."
+                    ),
+                    HumanMessage(content=prompt),
+                ]
+            )
+
             content = str(response.content).strip()
             if ":" in content and len(content.split(":")[0]) < 30:
                 content = content.split(":", 1)[1].strip()
@@ -343,7 +350,6 @@ class RAGService(BaseModel):
     def warmup(self) -> None:
         """Warmup internal services (e.g. load heavy models)."""
         self._retriever_service.warmup()
-
 
     def count_tokens(self, text: str) -> int:
         """Public helper to count tokens using the configured tokenizer.
