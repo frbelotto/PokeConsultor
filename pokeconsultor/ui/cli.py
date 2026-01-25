@@ -1,13 +1,21 @@
 """CLI UI for PokeConsultor."""
 
 import sys
-from pokeconsultor.models.llm import LLMRequest
+
+from langchain.messages import HumanMessage
+from langchain_core.prompts import ChatPromptTemplate
+
+# from pokeconsultor.models.llm import LLMRequest
 from pokeconsultor.llm.prompts import SYSTEM_MESSAGE
+
 
 class PokeConsultorCLI:
     """Terminal-based interface for PokeConsultor."""
-    
+
     def __init__(self, agent, rag_service):
+        # Keep the agent wrapper (AIAgent) so we can access its memory
+        # and implementation details. Store the underlying chat model
+        # separately for direct invocations.
         self.agent = agent
         self.rag_service = rag_service
         self.debug_mode = False
@@ -40,6 +48,7 @@ class PokeConsultorCLI:
         self.print_ready()
 
         while True:
+            counter = 0
             try:
                 print("\n\033[1;33m🔍 Sua pergunta: \033[0m", end="", flush=True)
                 query = sys.stdin.readline().strip()
@@ -78,18 +87,20 @@ class PokeConsultorCLI:
                         print("\n🧠 Memória vazia.")
                     else:
                         print("\n" + "=" * 80)
-                        print(f"📋 HISTÓRICO COMPLETO DE CONVERSA ({len(history)} mensagens)")
+                        print(
+                            f"📋 HISTÓRICO COMPLETO DE CONVERSA ({len(history)} mensagens)"
+                        )
                         print("=" * 80)
-                        
+
                         pair_idx = 1
                         for i in range(0, len(history), 2):
                             user_msg = history[i]
                             print(f"\n[Pergunta {pair_idx}] 👤")
                             print("-" * 80)
                             print(f"❓ {user_msg['content']}")
-                            
+
                             if i + 1 < len(history):
-                                assistant_msg = history[i+1]
+                                assistant_msg = history[i + 1]
                                 print(f"\n[Resposta {pair_idx}] 🤖")
                                 print("-" * 80)
                                 print(f"✨ {assistant_msg['content']}")
@@ -117,12 +128,14 @@ class PokeConsultorCLI:
                 if self.use_rag:
                     # Retrieve documents
                     rag_results = self.rag_service.retrieve(query)
-                    
+
                     if rag_results:
-                        print(f"✅ {len(rag_results)} documentos recuperados de fontes locais.")
+                        print(
+                            f"✅ {len(rag_results)} documentos recuperados de fontes locais."
+                        )
                         # Format context for prompt
                         retrieved_context = self.rag_service.format_results(rag_results)
-                        
+
                         # Identify which results are in the context (more robustly)
                         cleaned_context = " ".join(retrieved_context.split())
                         for i, doc in enumerate(rag_results, 1):
@@ -131,20 +144,35 @@ class PokeConsultorCLI:
                             if check_text and check_text in cleaned_context:
                                 used_indices.append(i)
 
-                # Generate response
-                request = LLMRequest(
-                    prompt=query,
-                    system_message=SYSTEM_MESSAGE,
-                    context=retrieved_context if self.use_rag else None
-                )
-                
+                if counter == 0:
+                    request = ChatPromptTemplate.from_messages(
+                        [
+                            SYSTEM_MESSAGE,
+                            HumanMessage(content=query),
+                        ]
+                    )
+                else:
+                    request = ChatPromptTemplate.from_messages(
+                        [HumanMessage(content=query)]
+                    )
+
+                if self.use_rag:
+                    request.append(
+                        HumanMessage(
+                            content="Para responder a questão, saiba que o contexto relevante é: "
+                            + retrieved_context
+                        )
+                    )
+                request = request.format_prompt().to_messages()
+                # Invoke the underlying chat model; keep memory on the agent wrapper.
                 response_text = self.agent.respond(request)
+                counter += 1
 
                 # Print response
                 print("\n" + "=" * 60)
                 print("✨ RESPOSTA DA IA")
                 print("=" * 60)
-                print(f"\n{response_text}")
+                print(f"\n{response_text.content}")
 
                 # Debug info
                 if self.debug_mode:
@@ -171,17 +199,17 @@ class PokeConsultorCLI:
             content = doc.page_content
             doc_preview = content[:160] + "..." if len(content) > 160 else content
             doc_chars = len(content)
-            
+
             filename = doc.metadata.get("file_path", "unknown").split("/")[-1]
             page = doc.metadata.get("page_number")
             row = doc.metadata.get("row_number")
-            
+
             ref = filename
             if page:
                 ref += f" (pág. {page})"
             elif row:
                 ref += f" (linha {row})"
-            
+
             in_context_flag = " ✓ ENVIADO" if i in used_indices else ""
             print(
                 f"  [{i:2d}] Fonte: {ref:30s} | {doc_chars:5d} chars{in_context_flag}"

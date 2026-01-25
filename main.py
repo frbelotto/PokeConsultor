@@ -8,6 +8,7 @@ from pokeconsultor.services.rag.service import RAGService
 from pokeconsultor.llm.base import llm_profiles
 from pokeconsultor.ui.cli import PokeConsultorCLI
 
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description="PokeConsultor - AI Assistant")

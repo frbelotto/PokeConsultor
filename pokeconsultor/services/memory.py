@@ -1,6 +1,9 @@
 """Conversation memory management service."""
 
-from pokeconsultor.models.llm import ConversationMessage, MessageRole
+# from pokeconsultor.models.llm import ConversationMessage, MessageRole
+from langchain.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import BaseMessage
+
 from pokeconsultor.services.logger import logger
 
 
@@ -16,47 +19,44 @@ class ConversationMemory:
 
         Args:
             max_messages: Maximum number of messages to keep (oldest removed first).
-                         Prevents unbounded memory growth.
+            Prevents unbounded memory growth.
         """
-        self.messages: list[ConversationMessage] = []
+        self.messages: list[BaseMessage] = []
         self.max_messages = max_messages
         logger.debug(
             "ConversationMemory initialized with max_messages=%d", max_messages
         )
 
-    def add_user_message(self, content: str) -> None:
+    def add_user_message(self, content: list[HumanMessage]) -> None:
         """Add a user message to history.
 
         Args:
             content: The user's message content.
         """
-        message = ConversationMessage(role=MessageRole.USER, content=content)
-        self.messages.append(message)
+        self.messages.extend(content)
         self._trim_history()
         logger.debug("User message added (total messages: %d)", len(self.messages))
 
-    def add_assistant_message(self, content: str) -> None:
+    def add_assistant_message(self, content: list[AIMessage]) -> None:
         """Add an assistant message to history.
 
         Args:
             content: The assistant's response content.
         """
-        message = ConversationMessage(role=MessageRole.ASSISTANT, content=content)
-        self.messages.append(message)
+        self.messages.extend(content)
         self._trim_history()
         logger.debug("Assistant message added (total messages: %d)", len(self.messages))
 
-    def add_system_message(self, content: str) -> None:
+    def add_system_message(self, content: list[SystemMessage]) -> None:
         """Add a system message to history.
 
         Args:
             content: The system message content.
         """
-        message = ConversationMessage(role=MessageRole.SYSTEM, content=content)
-        self.messages.append(message)
+        self.messages.extend(content)
         logger.debug("System message added")
 
-    def get_messages(self) -> list[ConversationMessage]:
+    def get_messages(self) -> list[BaseMessage]:
         """Get all messages in conversation history.
 
         Returns:
@@ -70,9 +70,18 @@ class ConversationMemory:
         Returns:
             List of dictionaries with 'role' and 'content' keys.
         """
-        return [
-            {"role": msg.role.value, "content": msg.content} for msg in self.messages
-        ]
+        history: list[dict[str, str]] = []
+        for msg in self.messages:
+            if isinstance(msg, HumanMessage):
+                role = "user"
+            elif isinstance(msg, AIMessage):
+                role = "assistant"
+            elif isinstance(msg, SystemMessage):
+                role = "system"
+            else:
+                role = getattr(msg, "role", "unknown")
+            history.append({"role": role, "content": getattr(msg, "content", "")})
+        return history
 
     def clear(self) -> None:
         """Clear all messages from conversation history."""
@@ -86,11 +95,9 @@ class ConversationMemory:
         Returns:
             String with message count and breakdown by role.
         """
-        user_count = sum(1 for msg in self.messages if msg.role == MessageRole.USER)
-        assistant_count = sum(
-            1 for msg in self.messages if msg.role == MessageRole.ASSISTANT
-        )
-        system_count = sum(1 for msg in self.messages if msg.role == MessageRole.SYSTEM)
+        user_count = sum(1 for msg in self.messages if isinstance(msg, HumanMessage))
+        assistant_count = sum(1 for msg in self.messages if isinstance(msg, AIMessage))
+        system_count = sum(1 for msg in self.messages if isinstance(msg, SystemMessage))
 
         return (
             f"Conversation has {len(self.messages)} messages: "
