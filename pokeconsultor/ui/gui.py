@@ -2,6 +2,7 @@
 
 import sys
 import threading
+from typing import Counter
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTextEdit, QLineEdit, QPushButton, QCheckBox, QLabel, QSplitter,
@@ -10,8 +11,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QObject, QUrl
 from PySide6.QtGui import QTextCursor, QFont, QDesktopServices, QAction
 
-from pokeconsultor.models.llm import LLMRequest
 from pokeconsultor.llm.prompts import SYSTEM_MESSAGE
+from langchain.messages import HumanMessage
+from langchain_core.prompts import ChatPromptTemplate
 
 class WorkerSignals(QObject):
     """Signals for the background worker."""
@@ -28,6 +30,7 @@ class PokeConsultorGUI(QMainWindow):
         self.signals = WorkerSignals()
         self.signals.response_ready.connect(self._on_response_ready)
         self.signals.error_occurred.connect(self._on_error)
+        self.counter :int= 0
         
         self.init_ui()
 
@@ -220,13 +223,27 @@ class PokeConsultorGUI(QMainWindow):
                         if check_text and check_text in cleaned_context:
                             used_indices.append(i)
 
-            request = LLMRequest(
-                prompt=query,
-                system_message=SYSTEM_MESSAGE,
-                context=retrieved_context if use_rag else None
-            )
+            if counter == 0:
+                request = ChatPromptTemplate.from_messages(
+                    [
+                        SYSTEM_MESSAGE,
+                        HumanMessage(content=query),
+                    ]
+                )
+            else:
+                request = ChatPromptTemplate.from_messages(
+                    [HumanMessage(content=query)]
+                )
+            if self.use_rag:
+                request.append(
+                    HumanMessage(
+                        content="Para responder a questão, saiba que o contexto relevante é: "
+                        + retrieved_context
+                    )
+                )
             
             response_text = self.agent.respond(request)
+            counter += 1
             
             # Format debug info
             debug_info = self._format_debug_info(rag_results, retrieved_context, used_indices)

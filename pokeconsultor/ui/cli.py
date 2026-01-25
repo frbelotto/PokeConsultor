@@ -19,7 +19,7 @@ class PokeConsultorCLI:
         self.agent = agent
         self.rag_service = rag_service
         self.debug_mode = False
-        self.use_rag = True
+        self.use_rag = False
 
     def print_header(self):
         """Print the application header."""
