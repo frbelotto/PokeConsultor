@@ -21,13 +21,14 @@ def main():
 
         # 2. Initialize modules
         print(f"⚙️  Inicializando PokeConsultor (modelo: {llm.model})...")
-        
+
         rag_service = RAGService(llm_model=llm.model)
         agent = AIAgent(llm=llm)
 
         if args.gui:
             try:
                 from pokeconsultor.ui.gui import run_gui
+
                 run_gui(agent, rag_service)
             except ImportError as e:
                 print(f"\n❌ Erro ao carregar GUI: {e}")
