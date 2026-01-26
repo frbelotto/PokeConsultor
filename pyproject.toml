@@ -38,7 +38,6 @@ dev = [
     "mypy>=1.19.0",
     "taskipy>=1.14.0",
     "ipykernel>=7.1.0",
-    "pytest-qt>=4.5.0",
 ]
 
 [tool.taskipy.tasks]
