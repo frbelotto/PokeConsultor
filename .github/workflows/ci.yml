@@ -23,6 +23,13 @@ jobs:
           python-version: "3.11"
           enable-cache: false
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          # libraries required for PySide6 / Qt on headless runners
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-glx libegl1-mesa libx11-xcb1 libxcb-xinerama0 libxkbcommon-x11-0
+
       - name: Create test .env file
         shell: bash
         run: |
