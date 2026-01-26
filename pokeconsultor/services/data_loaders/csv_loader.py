@@ -79,7 +79,9 @@ class CSVLoader(DataLoader):
                             "source": file_path.name,
                             "row_number": row_number,
                         }
-                        documents.append(Document(page_content=doc_content, metadata=metadata))
+                        documents.append(
+                            Document(page_content=doc_content, metadata=metadata)
+                        )
 
             logger.info(f"Loaded {len(documents)} records from CSV: {file_path.name}")
             return documents

@@ -129,3 +129,42 @@ def _input_sequence(*items: str) -> Callable[[str], str]:
     return _fake_input
 
 
+import pytest
+
+
+@pytest.fixture
+def fake_rag_service():
+    """Fixture que retorna uma instância do FakeRAGService."""
+    return FakeRAGService(use_cache=False, llm_model="fake-llm")
+
+
+@pytest.fixture
+def fake_ai_agent():
+    """Fixture que retorna uma instância do FakeAIAgent."""
+    return FakeAIAgent(llm=object())
+
+
+def test_integration_main_flow(fake_rag_service, fake_ai_agent):
+    """
+    Integration test covering the main flow:
+    - Initializes fake RAG and agent
+    - Simulates a user question
+    - Checks agent response and memory
+    """
+    # Simula uma pergunta do usuário
+    user_question = "What is Pikachu?"
+    # Simula recuperação de contexto pelo RAG
+    retrieved_docs = fake_rag_service.retrieve(user_question)
+    formatted_context = fake_rag_service.format_results(retrieved_docs)
+
+    # Simula requisição ao agente
+    class Request:
+        prompt: str = user_question + "\n" + formatted_context
+
+    response = fake_ai_agent.respond(Request())
+    # Verifica se a resposta contém o prefixo fake
+    assert response.startswith("[fake] Answer to: ")
+    # Verifica se a memória foi atualizada
+    messages = fake_ai_agent.memory.get_messages()
+    assert any(user_question in m.content for m in messages)
+    assert any("[fake] Answer to:" in m.content for m in messages)

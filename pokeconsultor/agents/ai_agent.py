@@ -1,15 +1,14 @@
-from __future__ import annotations
-
 from typing import Any
 
 from langchain.chat_models import BaseChatModel, init_chat_model
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from pokeconsultor.llm.base import LLMProfile
-from pokeconsultor.models.llm import LLMRequest
+
 from pokeconsultor.services.memory import ConversationMemory
+
+from langchain.messages import HumanMessage, AIMessage
+from langchain_core.messages import BaseMessage
 
 
 class AIAgent(BaseModel):
@@ -19,80 +18,53 @@ class AIAgent(BaseModel):
 
     llm: LLMProfile
     memory: ConversationMemory = Field(default_factory=ConversationMemory)
-    agent: BaseChatModel | None = None
+    _agent: BaseChatModel = PrivateAttr()
 
     def model_post_init(self, _context: Any) -> None:
         """Instantiate the chat model passing the provider API key when available."""
-        api_key = self.llm.api_key.get_secret_value() if self.llm.api_key else ""
+        api_key = self.llm.api_key.get_secret_value()
 
         init_kwargs: dict[str, Any] = {
             "temperature": self.llm.temperature,
             "max_tokens": self.llm.max_tokens,
+            "api_key": api_key,
         }
 
-        if api_key:
-            init_kwargs["api_key"] = api_key
-
-        self.agent = init_chat_model(
+        self._agent = init_chat_model(
             f"{self.llm.provider}:{self.llm.model}",
             **init_kwargs,
         )
 
+    @property
+    def agent(self) -> BaseChatModel:
+        """Get the instantiated chat model."""
+        return self._agent
 
-    def respond(self, request: LLMRequest) -> str:
-        """Generate a chat response using memory context and optional RAG.
+    def respond(self, prompt: list[BaseMessage]) -> AIMessage:
+        # memory stores BaseMessage instances (HumanMessage/AIMessage)
+        try:
+            history_msgs = self.memory.get_messages()
+            prompt.extend(history_msgs)
+        except Exception:
+            # If memory fails, continue without it
+            history_msgs = []
 
-        Args:
-            request: LLMRequest containing prompt, system message, and optional context
+        # Append the current user prompt
+        humanmessages = [m for m in prompt if isinstance(m, HumanMessage)]
 
-        Returns:
-            The assistant's response as a string.
+        # Persist user message
+        try:
+            self.memory.add_user_message(humanmessages)
+        except Exception:
+            pass
 
-        Includes previous conversation history from memory to provide context
-        for multi-turn interactions.
-        """
+        # Invoke the chat model
+        response = self._agent.invoke(prompt)
 
-        assert self.agent is not None, "Chat model not initialized"
+        # Persist assistant reply
+        try:
+            self.memory.add_assistant_message([response])
+        except Exception:
+            pass
 
-        # Construct prompt template
-        prompt_template = ChatPromptTemplate.from_messages([
-            ("system", "{system_message}"),
-            MessagesPlaceholder(variable_name="history"),
-            ("human", "{prompt}"),
-        ])
-
-        # Prepare messages
-        history = []
-        for msg in self.memory.get_messages():
-            if msg.role.value == "user":
-                history.append(HumanMessage(content=msg.content))
-            elif msg.role.value == "assistant":
-                history.append(AIMessage(content=msg.content))
-
-        # Handle context and safeguards
-        sys_content = request.system_message or "Você é um assistente prestativo."
-        if request.context:
-            sys_content += f"\n\n## CONTEXTO RELEVANTE\n{request.context}"
-        else:
-            # Enforce "no context = no guessing" safeguard
-            sys_content += (
-                f"\n\n⚠️ AVISO: Você NÃO TEM CONTEXTO para esta pergunta. "
-                "Você DEVE responder: 'Não tenho essa informação no contexto fornecido.'"
-            )
-
-        # Execute using LCEL
-        chain = prompt_template | self.agent
-        response = chain.invoke({
-            "system_message": sys_content,
-            "history": history,
-            "prompt": request.prompt
-        })
-
-        # Persist conversation
-        self.memory.add_user_message(request.prompt)
-
-        # Ensure response.content is converted to string
-        response_text = str(response.content) if not isinstance(response.content, str) else response.content
-        self.memory.add_assistant_message(response_text)
-
-        return response_text
+        return response

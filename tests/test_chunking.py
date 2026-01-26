@@ -32,8 +32,6 @@ class TestChunkingLogic:
         """Mock torch to prevent runtime error from set_num_interop_threads."""
         return mocker.patch("pokeconsultor.services.rag.embeddings.torch")
 
-        
-
     def test_regex_split_behavior(self, mocker, tmp_path):
         """Verify the specific regex logic for splitting."""
         import re

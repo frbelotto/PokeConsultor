@@ -8,6 +8,7 @@ from pokeconsultor.services.rag.service import RAGService
 from pokeconsultor.llm.base import llm_profiles
 from pokeconsultor.ui.cli import PokeConsultorCLI
 
+
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description="PokeConsultor - AI Assistant")
@@ -20,13 +21,14 @@ def main():
 
         # 2. Initialize modules
         print(f"⚙️  Inicializando PokeConsultor (modelo: {llm.model})...")
-        
+
         rag_service = RAGService(llm_model=llm.model)
         agent = AIAgent(llm=llm)
 
         if args.gui:
             try:
                 from pokeconsultor.ui.gui import run_gui
+
                 run_gui(agent, rag_service)
             except ImportError as e:
                 print(f"\n❌ Erro ao carregar GUI: {e}")
