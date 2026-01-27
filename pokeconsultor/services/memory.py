@@ -1,5 +1,11 @@
 """Conversation memory management service."""
 
+
+from langgraph.checkpoint.memory import InMemorySaver  
+
+checkpointer = InMemorySaver() 
+
+
 # from pokeconsultor.models.llm import ConversationMessage, MessageRole
 from langchain.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.messages import BaseMessage

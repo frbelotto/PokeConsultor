@@ -44,7 +44,6 @@ def main():
     except Exception as e:
         logger.exception("Erro fatal na aplicação")
         print(f"\n\033[1;31m❌ ERRO FATAL: {e}\033[0m")
-        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -45,7 +45,6 @@ class PokeConsultorCLI:
         self.print_ready()
 
         while True:
-            counter = 0
             try:
                 print("\n\033[1;33m🔍 Sua pergunta: \033[0m", end="", flush=True)
                 query = sys.stdin.readline().strip()
@@ -141,7 +140,6 @@ class PokeConsultorCLI:
                             if check_text and check_text in cleaned_context:
                                 used_indices.append(i)
 
-                if counter == 0:
                     request = ChatPromptTemplate.from_messages(
                         [
                             SYSTEM_MESSAGE,
@@ -153,22 +151,22 @@ class PokeConsultorCLI:
                         [HumanMessage(content=query)]
                     )
 
-                if self.use_rag:
-                    request.append(
-                        HumanMessage(
-                            content="Para responder a questão, saiba que o contexto relevante é: "
-                            + retrieved_context
-                        )
-                    )
                 request = request.format_prompt().to_messages()
-                response_text = self.agent.respond(request)
-                counter += 1
+                
+                ragcontext = HumanMessage(content="")  
+                if self.use_rag:
+                    ragcontext = HumanMessage(
+                        content="Para responder a questão, saiba que o contexto relevante é: "
+                        + retrieved_context
+                    )
+
+                response_text = self.agent.respond(prompt=request, ragcontext=ragcontext)
 
                 # Print response
                 print("\n" + "=" * 60)
                 print("✨ RESPOSTA DA IA")
                 print("=" * 60)
-                print(f"\n{response_text.content}")
+                print(f"\n{response_text}")
 
                 # Debug info
                 if self.debug_mode:
