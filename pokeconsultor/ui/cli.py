@@ -4,9 +4,9 @@ import sys
 
 from langchain.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
+from pokeconsultor.services.logger import logger
 
-# from pokeconsultor.models.llm import LLMRequest
-from pokeconsultor.llm.prompts import SYSTEM_MESSAGE
+
 
 
 class PokeConsultorCLI:
@@ -140,18 +140,9 @@ class PokeConsultorCLI:
                             if check_text and check_text in cleaned_context:
                                 used_indices.append(i)
 
-                    request = ChatPromptTemplate.from_messages(
-                        [
-                            SYSTEM_MESSAGE,
-                            HumanMessage(content=query),
-                        ]
-                    )
-                else:
-                    request = ChatPromptTemplate.from_messages(
-                        [HumanMessage(content=query)]
-                    )
-
-                request = request.format_prompt().to_messages()
+                # Build a single HumanMessage for the agent (agent.respond expects a HumanMessage)
+                request = HumanMessage(content=query)
+                logger.info(f"User prompt: {request}")
                 
                 ragcontext = HumanMessage(content="")  
                 if self.use_rag:

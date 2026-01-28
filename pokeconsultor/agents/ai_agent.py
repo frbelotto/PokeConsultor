@@ -12,13 +12,15 @@ from pokeconsultor.services.memory import ConversationMemory
 
 from langchain.messages import HumanMessage, AIMessage, ToolMessage
 from langchain_core.messages import BaseMessage
+from langchain_core.output_parsers import StrOutputParser
+from langchain.messages import SystemMessage
 
 
 class AIAgent(BaseModel):
     """Thin wrapper that instantiates a LangChain chat model with memory."""
     
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
-    
+    systemprompt: SystemMessage
     llm: LLMProfile
     memory: ConversationMemory = Field(default_factory=ConversationMemory)
     _agent: CompiledStateGraph = PrivateAttr()
@@ -36,43 +38,77 @@ class AIAgent(BaseModel):
             api_key=api_key,
         )
 
-        self._agent = create_agent(llm_instance)
+        self._agent = create_agent(
+            llm_instance, system_prompt=self.systemprompt)
 
     @property
     def agent(self) -> CompiledStateGraph:
         """Get the instantiated chat model."""
         return self._agent
 
-    def respond(self, prompt: HumanMessage, ragcontext:HumanMessage) -> AIMessage:
-        
-        
+    def respond(self, prompt: HumanMessage, ragcontext: HumanMessage) -> str:
+        """Send prompt and optional RAG context to the agent and return the parsed response as plain text.
+
+        The agent expects a list of message dicts with 'role' and 'content'. We build that
+        list from conversation history, optional RAG context, and the current user prompt.
+        """
+
+        # Retrieve history as list of {'role','content'} dicts
         try:
-            history_msgs = self.memory.get_messages()
+            history = self.memory.get_history()
         except Exception:
-            history_msgs = []
+            history = []
 
-        # # Append the current user prompt
-        # humanmessages = [m for m in prompt if isinstance(m, HumanMessage)]
-
-        # Persist user message
+        # Persist the current user message into memory (expects a list of HumanMessage)
         try:
-            self.memory.add_user_message(prompt)
+            self.memory.add_user_message([prompt])
         except Exception:
             pass
 
-        # Invoke the chat model
-        response = self._agent.invoke(
-            {'messages' : {
-                'input': prompt,
-                'context': ragcontext,  
-            }
-            })
-            
+        # Build messages for the agent invoke: history followed by optional rag context and user prompt
+        messages = []
+        messages.extend(history)
+
+        if ragcontext and getattr(ragcontext, "content", ""):
+            # Include RAG context as a system message so the model sees it as grounding info
+            messages.append({"role": "system", "content": ragcontext.content})
+
+        # Current user prompt
+        messages.append({"role": "user", "content": prompt.content})
+
+        parser = StrOutputParser()
+
+        # Invoke the compiled agent with a proper messages list
+        raw = self._agent.invoke({"messages": messages})
+        parsed = parser.parse(raw)
+
+        def _normalize_parsed(obj: Any) -> str:
+            """Normalize parser/agent outputs to plain string."""
+            if isinstance(obj, str):
+                return obj
+            if isinstance(obj, dict):
+                for k in ("text", "output", "content"):
+                    v = obj.get(k)
+                    if v:
+                        return str(v)
+                msgs = obj.get("messages")
+                if isinstance(msgs, list) and msgs:
+                    last = msgs[-1]
+                    if isinstance(last, dict):
+                        return str(last.get("content") or last.get("text") or last)
+                    return str(getattr(last, "content", last))
+                return str(obj)
+            return str(obj)
+
+        final_text = _normalize_parsed(parsed)
 
         # Persist assistant reply
+        from langchain.messages import AIMessage
+
+        ai_msg = AIMessage(content=final_text)
         try:
-            self.memory.add_assistant_message([response])
+            self.memory.add_assistant_message([ai_msg])
         except Exception:
             pass
 
-        return response
+        return final_text

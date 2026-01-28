@@ -7,6 +7,7 @@ from pokeconsultor.services.logger import logger
 from pokeconsultor.services.rag.service import RAGService
 from pokeconsultor.llm.base import llm_profiles
 from pokeconsultor.ui.cli import PokeConsultorCLI
+from pokeconsultor.llm.prompts import SYSTEM_MESSAGE
 
 
 def main():
@@ -23,7 +24,7 @@ def main():
         print(f"⚙️  Inicializando PokeConsultor (modelo: {llm.model})...")
 
         rag_service = RAGService(llm_model=llm.model)
-        agent = AIAgent(llm=llm)
+        agent = AIAgent(llm=llm, systemprompt=SYSTEM_MESSAGE)
 
         if args.gui:
             try:
