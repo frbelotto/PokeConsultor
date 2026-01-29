@@ -14,7 +14,7 @@ from langchain_core.messages import BaseMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain.messages import SystemMessage
 from pokeconsultor.services.logger import logger
-from pokeconsultor.services.memory import checkpointer
+from pokeconsultor.services.memory import checkpointer, middleware
 from langgraph.checkpoint.memory import InMemorySaver
 import threading
 
@@ -43,8 +43,11 @@ class AIAgent(BaseModel):
         )
 
         self._agent = create_agent(
-            llm_instance, system_prompt=self.systemprompt, checkpointer=self._memory
+            llm_instance, system_prompt=self.systemprompt, 
+            checkpointer=self._memory, 
+            middleware=middleware
         )
+
 
     @property
     def agent(self) -> CompiledStateGraph:
