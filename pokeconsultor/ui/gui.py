@@ -242,8 +242,8 @@ class PokeConsultorGUI(QMainWindow):
 
                             request = HumanMessage(content=query)
                 logger.info(f"User prompt: {request}")
-                
-            ragcontext = HumanMessage(content="")  
+
+            ragcontext = HumanMessage(content="")
             if use_rag:
                 ragcontext = HumanMessage(
                     content="Para responder a questão, saiba que o contexto relevante é: "
@@ -326,7 +326,7 @@ class PokeConsultorGUI(QMainWindow):
 
     def clear_memory(self):
         """Clear the AI agent memory and UI displays."""
-        self.agent.memory.clear()
+        self.agent._agent.checkpointer.delete_thread(str(self.agent._threadid))
         self.chat_display.clear()
         self.debug_display.clear()
         self._append_chat("🧠 Memória e histórico limpos!", "system")

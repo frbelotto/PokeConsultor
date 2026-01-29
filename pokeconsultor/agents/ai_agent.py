@@ -8,29 +8,32 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from pokeconsultor.llm.base import LLMProfile
 
-from pokeconsultor.services.memory import ConversationMemory
 
 from langchain.messages import HumanMessage, AIMessage, ToolMessage
 from langchain_core.messages import BaseMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain.messages import SystemMessage
 from pokeconsultor.services.logger import logger
+from pokeconsultor.services.memory import checkpointer
+from langgraph.checkpoint.memory import InMemorySaver
+import threading
 
 
 class AIAgent(BaseModel):
     """Thin wrapper that instantiates a LangChain chat model with memory."""
-    
+
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
     systemprompt: SystemMessage
     llm: LLMProfile
-    memory: ConversationMemory = Field(default_factory=ConversationMemory)
+    _threadid: int = PrivateAttr(default_factory=threading.get_ident)
+    _memory: InMemorySaver = checkpointer
     _agent: CompiledStateGraph = PrivateAttr()
-    
+
     def model_post_init(self, _context: Any) -> None:
         """Instantiate the chat model passing the provider API key when available."""
-        
+
         api_key = self.llm.api_key.get_secret_value()
-        
+
         llm_instance = init_chat_model(
             model=self.llm.model,
             model_provider=self.llm.provider,
@@ -40,7 +43,8 @@ class AIAgent(BaseModel):
         )
 
         self._agent = create_agent(
-            llm_instance, system_prompt=self.systemprompt)
+            llm_instance, system_prompt=self.systemprompt, checkpointer=self._memory
+        )
 
     @property
     def agent(self) -> CompiledStateGraph:
@@ -54,34 +58,19 @@ class AIAgent(BaseModel):
         list from conversation history, optional RAG context, and the current user prompt.
         """
 
-        # Retrieve history as list of {'role','content'} dicts
-        try:
-            history = self.memory.get_history()
-        except Exception:
-            history = []
-
-        # Persist the current user message into memory (expects a list of HumanMessage)
-        try:
-            self.memory.add_user_message([prompt])
-        except Exception:
-            pass
-
-        # Build messages for the agent invoke: history followed by optional rag context and user prompt
         messages = []
-        messages.extend(history)
 
         if ragcontext and getattr(ragcontext, "content", ""):
-            # Include RAG context as a system message so the model sees it as grounding info
             messages.append({"role": "system", "content": ragcontext.content})
 
-        # Current user prompt
         messages.append({"role": "user", "content": prompt.content})
         logger.debug(f"Agent messages: {messages}")
 
         parser = StrOutputParser()
 
-
-        raw = self._agent.invoke({"messages": messages})
+        raw = self._agent.invoke(
+            {"messages": messages}, {"configurable": {"thread_id": self._threadid}}
+        )
         parsed = parser.parse(raw)
 
         def _normalize_parsed(obj: Any) -> str:
@@ -104,11 +93,10 @@ class AIAgent(BaseModel):
 
         final_text = _normalize_parsed(parsed)
 
-
         ai_msg = AIMessage(content=final_text)
-        try:
-            self.memory.add_assistant_message([ai_msg])
-        except Exception:
-            pass
+        # try:
+        #     self.memory.add_assistant_message([ai_msg])
+        # except Exception:
+        #     pass
 
         return final_text
