@@ -14,6 +14,7 @@ from langchain.messages import HumanMessage, AIMessage, ToolMessage
 from langchain_core.messages import BaseMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain.messages import SystemMessage
+from pokeconsultor.services.logger import logger
 
 
 class AIAgent(BaseModel):
@@ -75,10 +76,11 @@ class AIAgent(BaseModel):
 
         # Current user prompt
         messages.append({"role": "user", "content": prompt.content})
+        logger.debug(f"Agent messages: {messages}")
 
         parser = StrOutputParser()
 
-        # Invoke the compiled agent with a proper messages list
+
         raw = self._agent.invoke({"messages": messages})
         parsed = parser.parse(raw)
 
@@ -102,8 +104,6 @@ class AIAgent(BaseModel):
 
         final_text = _normalize_parsed(parsed)
 
-        # Persist assistant reply
-        from langchain.messages import AIMessage
 
         ai_msg = AIMessage(content=final_text)
         try:

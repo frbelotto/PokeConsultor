@@ -4,6 +4,7 @@ import sys
 import threading
 
 from langchain.messages import HumanMessage
+from pokeconsultor.services.logger import logger
 from langchain_core.prompts import ChatPromptTemplate
 from PySide6.QtCore import QObject, Qt, QUrl, Signal
 from PySide6.QtGui import QAction, QDesktopServices, QFont, QTextCursor
@@ -239,28 +240,17 @@ class PokeConsultorGUI(QMainWindow):
                         if check_text and check_text in cleaned_context:
                             used_indices.append(i)
 
-            if self.counter == 0:
-                request = ChatPromptTemplate.from_messages(
-                    [
-                        SYSTEM_MESSAGE,
-                        HumanMessage(content=query),
-                    ]
-                )
-            else:
-                request = ChatPromptTemplate.from_messages(
-                    [HumanMessage(content=query)]
-                )
+                            request = HumanMessage(content=query)
+                logger.info(f"User prompt: {request}")
+                
+            ragcontext = HumanMessage(content="")  
             if use_rag:
-                request.append(
-                    HumanMessage(
-                        content="Para responder a questão, saiba que o contexto relevante é: "
-                        + retrieved_context
-                    )
+                ragcontext = HumanMessage(
+                    content="Para responder a questão, saiba que o contexto relevante é: "
+                    + retrieved_context
                 )
 
-            request = request.format_prompt().to_messages()
-            response_text = self.agent.respond(request)
-            self.counter += 1
+            response_text = self.agent.respond(prompt=request, ragcontext=ragcontext)
 
             # Garantir que a resposta seja string
             if not isinstance(response_text, str):

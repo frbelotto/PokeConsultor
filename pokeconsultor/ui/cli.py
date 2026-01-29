@@ -121,7 +121,7 @@ class PokeConsultorCLI:
                 retrieved_context = ""
                 used_indices = []
 
-                if self.use_rag:
+                if self.use_rag: 
                     # Retrieve documents
                     rag_results = self.rag_service.retrieve(query)
 
