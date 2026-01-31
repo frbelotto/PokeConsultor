@@ -36,12 +36,12 @@ class RAGService(BaseModel):
 
     # Retrieval configuration (hybrid is standard)
     retrieve_k: int = Field(
-        default=20,
+        default=5,
         gt=0,
         description="Top-K to retrieve from each retriever (lexical & vector)",
     )
     rerank_k: int | None = Field(
-        default=15,
+        default=3,
         ge=0,
         description="Documents to keep after reranking (None disables)",
     )

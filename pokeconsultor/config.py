@@ -98,6 +98,30 @@ class Settings(BaseSettings):
         description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
     )
 
+    # Summarization Configuration
+    # ==============================================================#
+    SUMMARIZATION_ENABLED: bool = Field(
+        default=True,
+        description="Enable/disable automatic memory summarization",
+    )
+    SUMMARIZATION_TRIGGER_TOKENS: int = Field(
+        default=4000,
+        description="Token limit to trigger summarization",
+    )
+    SUMMARIZATION_KEEP_MESSAGES: int = Field(
+        default=20,
+        description="Number of recent messages to keep after summarization",
+    )
+    SUMMARIZATION_MODEL: str = Field(
+        default="llama-3.1-8b-instant",
+        description="Model identifier for generating summaries",
+    )
+    SUMMARIZATION_PROVIDER: str = Field(
+        default="groq",
+        description="Provider for the summarization model",
+    )
+    # ==============================================================#
+
     def __new__(cls, *args: Any, **kwargs: Any) -> Settings:
         """Ensure a single instance is created for the lifetime of the process."""
         if not hasattr(cls, "_instance"):

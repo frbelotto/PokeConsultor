@@ -4,9 +4,7 @@ import sys
 
 from langchain.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
-
-# from pokeconsultor.models.llm import LLMRequest
-from pokeconsultor.llm.prompts import SYSTEM_MESSAGE
+from pokeconsultor.services.logger import logger
 
 
 class PokeConsultorCLI:
@@ -45,7 +43,6 @@ class PokeConsultorCLI:
         self.print_ready()
 
         while True:
-            counter = 0
             try:
                 print("\n\033[1;33m🔍 Sua pergunta: \033[0m", end="", flush=True)
                 query = sys.stdin.readline().strip()
@@ -79,34 +76,28 @@ class PokeConsultorCLI:
 
                 # Memory commands
                 if query.lower() in ["memória", "memory"]:
-                    history = self.agent.memory.get_history()
+                    # history = self.agent.memory.get_history()
+                    history = self.agent._agent.get_state_history(
+                        {"configurable": {"thread_id": str(self.agent._threadid)}}
+                    )
                     if not history:
                         print("\n🧠 Memória vazia.")
                     else:
                         print("\n" + "=" * 80)
-                        print(
-                            f"📋 HISTÓRICO COMPLETO DE CONVERSA ({len(history)} mensagens)"
-                        )
+                        print(f"📋 HISTÓRICO COMPLETO DE CONVERSA ")
                         print("=" * 80)
 
-                        pair_idx = 1
-                        for i in range(0, len(history), 2):
-                            user_msg = history[i]
-                            print(f"\n[Pergunta {pair_idx}] 👤")
-                            print("-" * 80)
-                            print(f"❓ {user_msg['content']}")
+                        for message in history:
+                            print(message)
 
-                            if i + 1 < len(history):
-                                assistant_msg = history[i + 1]
-                                print(f"\n[Resposta {pair_idx}] 🤖")
-                                print("-" * 80)
-                                print(f"✨ {assistant_msg['content']}")
-                            pair_idx += 1
                         print("\n" + "=" * 80)
                     continue
 
                 if query.lower() in ["limpar_memória", "clear_memory"]:
-                    self.agent.memory.clear()
+                    # self.agent.memory.clear()
+                    self.agent._agent.checkpointer.delete_thread(
+                        str(self.agent._threadid)
+                    )
                     print("\033[2J\033[H")  # Clear terminal
                     print("\n🧠 Memória e terminal limpos!")
                     continue
@@ -141,34 +132,26 @@ class PokeConsultorCLI:
                             if check_text and check_text in cleaned_context:
                                 used_indices.append(i)
 
-                if counter == 0:
-                    request = ChatPromptTemplate.from_messages(
-                        [
-                            SYSTEM_MESSAGE,
-                            HumanMessage(content=query),
-                        ]
-                    )
-                else:
-                    request = ChatPromptTemplate.from_messages(
-                        [HumanMessage(content=query)]
+                # Build a single HumanMessage for the agent (agent.respond expects a HumanMessage)
+                request = HumanMessage(content=query)
+                logger.info(f"User prompt: {request}")
+
+                ragcontext = HumanMessage(content="")
+                if self.use_rag:
+                    ragcontext = HumanMessage(
+                        content="Para responder a questão, saiba que o contexto relevante é: "
+                        + retrieved_context
                     )
 
-                if self.use_rag:
-                    request.append(
-                        HumanMessage(
-                            content="Para responder a questão, saiba que o contexto relevante é: "
-                            + retrieved_context
-                        )
-                    )
-                request = request.format_prompt().to_messages()
-                response_text = self.agent.respond(request)
-                counter += 1
+                response_text = self.agent.respond(
+                    prompt=request, ragcontext=ragcontext
+                )
 
                 # Print response
                 print("\n" + "=" * 60)
                 print("✨ RESPOSTA DA IA")
                 print("=" * 60)
-                print(f"\n{response_text.content}")
+                print(f"\n{response_text}")
 
                 # Debug info
                 if self.debug_mode:
