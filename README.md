@@ -1,409 +1,112 @@
-# PokeConsultor
+# 🧶 PokeConsultor
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
+[![LangChain](https://img.shields.io/badge/Orchestration-LangChain-green.svg)](https://github.com/langchain-ai/langchain)
 
-An AI-powered intelligent consultant system that leverages Retrieval-Augmented Generation (RAG) to answer questions based on custom knowledge bases. While originally designed for Pokémon data, it can be easily adapted for any domain.
+Intelligent AI Consultant using **RAG (Retrieval-Augmented Generation)** to answer questions based on custom knowledge bases. While originally designed for data existing in the `data/` folder (RAG source), and named **PokeConsultor** as I plan to implement a **PokeAPI MCP server**, it is domain-agnostic and can be easily adapted to any context.
 
-## 🌟 Features
+---
 
-- **🧠 RAG-Powered Responses**: Combines semantic search with Large Language Models (LLMs) for accurate, context-aware answers
-- **📚 Multi-Format Support**: Load data from CSV, TXT, PDF, Markdown, and other formats
-- **💾 Smart Caching**: Persistent ChromaDB vector store with incremental embedding support
-- **🔄 Conversation Memory**: Maintains multi-turn conversation context
-- **🎯 Multiple LLM Profiles**: Configure different models for various purposes (executor, supervisor, default)
-- **🔌 Provider Agnostic**: Works with Groq, OpenAI, HuggingFace, and other LangChain-supported providers
-- **📊 Automatic Context Management**: Dynamically adjusts retrieval based on model context windows
-- **🏭 Factory Pattern Loaders**: Automatic file type detection and appropriate loader selection
+## 🌟 Key Features
+
+- **🧠 Advanced Memory System**: Integrated with LangChain's `SummarizationMiddleware` for intelligent context management and automatic summarization of long conversations.
+- **🔍 Elite Hybrid Search**: Combines semantic (vector) search with lexical search (BM25) using **Rank Fusion (RRF)** for maximum precision.
+- **✨ Query Expansion**: Leverages LLMs to generate search variations, increasing retrieval coverage.
+- **⚡ Incremental Embeddings**: Intelligent system that detects new, modified, or deleted files, processing only what's necessary.
+- **📚 Multi-format Support**: Automatic loading of PDF, CSV, TXT, Markdown, and more via Factory Pattern.
+- **🖥️ Dual Interfaces**: Choose between a powerful interactive CLI or a modern graphical interface built with **PySide6**.
+- **🎯 LLM Profiles**: Granular model configuration for different roles (Executor, Supervisor, Default).
+
+---
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-
-- Python 3.11 or higher
-- [uv](https://github.com/astral-sh/uv) for dependency management (recommended)
+- Python 3.11 up to 3.13
+- [uv](https://github.com/astral-sh/uv) (highly recommended)
 
 ### Installation
 
 1. **Clone the repository**
-```bash
-git clone https://github.com/frbelotto/PokeConsultor.git
-cd PokeConsultor
-```
+   ```bash
+   git clone https://github.com/frbelotto/PokeConsultor.git
+   cd PokeConsultor
+   ```
 
-2. **Set up environment with uv**
-```bash
-uv venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-uv sync
-```
+2. **Sync the environment**
+   ```bash
+   uv sync
+   ```
 
-3. **Configure environment variables**
+3. **Configure Environment Variables**
+   Create a `.env` file based on `.env.example`:
 
-Create a `.env` file in the project root:
+---
 
-```env
-# LLM Provider API Keys
-GROQ_API_KEY=your_groq_api_key_here
-# HUGGINGFACE_HUB_TOKEN=your_token_here  # Optional
+## 🏗️ System Architecture
 
-# Default LLM Configuration
-LLM_DEFAULT_PROVIDER=groq
-LLM_DEFAULT_MODEL=llama-3.1-8b-instant
-LLM_DEFAULT_TEMPERATURE=0.7
-LLM_DEFAULT_MAX_TOKENS=500
+The system is divided into decoupled modules for easy maintenance and expansion:
 
-# Executor Profile
-LLM_PROFILE_EXECUTOR_PROVIDER=groq
-LLM_PROFILE_EXECUTOR_MODEL=llama-3.1-8b-instant
-LLM_PROFILE_EXECUTOR_TEMPERATURE=0.5
-LLM_PROFILE_EXECUTOR_MAX_TOKENS=1000
-
-# Supervisor Profile
-LLM_PROFILE_SUPERVISOR_PROVIDER=groq
-LLM_PROFILE_SUPERVISOR_MODEL=llama-3.1-70b-versatile
-LLM_PROFILE_SUPERVISOR_TEMPERATURE=0.3
-LLM_PROFILE_SUPERVISOR_MAX_TOKENS=2000
-
-# Application Settings
-DATA_PATH=data
-CACHE_DIR=.cache
-LOG_LEVEL=INFO
-
-# Optional: PokeAPI MCP Server
-POKEAPI_MCP_SERVER_URL=http://localhost:3000
-POKEAPI_MCP_ENABLED=false
-```
-
-4. **Add your data files**
-
-Place your knowledge base files in the `data/` directory:
-- CSV files (e.g., `Treinadores.csv`)
-- Text files (e.g., `Shopping.txt`)
-- PDF documents
-- Markdown files
-
-5. **Run the application**
-```bash
-uv run python main.py
-```
-
-## 📖 Usage
-
-### Interactive Mode
-
-Once started, the application provides an interactive console where you can ask questions:
-
-```
-🔍 Sua pergunta: Who is Ash Ketchum?
-```
-
-### Available Commands
-
-- **`sair`** or **`exit`**: Exit the application
-- **`limpar`** or **`clear`**: Clear the console
-- **`debug`**: Toggle debug mode
-- **`memória`** or **`memory`**: View conversation history
-- **`limpar_memória`** or **`clear_memory`**: Clear conversation history
-- **Ctrl+C**: Interrupt execution
-
-### Example Session
-
-```
-⚙️  INICIALIZANDO POKECONSULTOR
-============================================================
-
-[1] 📂 Carregando RAG service ...
-[2] 🤖 Inicializando LLM (groq/llama-3.1-8b-instant)...
-[3] 🎯 Configurando AI Agent com RAG...
-
-✅ Sistema pronto para consultas!
-
-============================================================
-🎮 POKECONSULTOR - CONSULTOR DE POKÉMON COM IA
-============================================================
-
-💬 Faça suas perguntas sobre Pokémon!
-
-🔍 Sua pergunta: Tell me about trainers from Cerulean City
-```
-
-## 🏗️ Architecture
-
-### Project Structure
-
-```
-pokeconsultor/
-├── agents/
-│   └── ai_agent.py                    # LLM agent with memory
-├── llm/
-│   └── base.py                        # LLM profile management
-├── models/
-│   └── llm.py                         # Data models (LLMRequest, ConversationMessage)
-├── services/
-│   ├── logger.py                      # Logging configuration
-│   ├── memory.py                      # Conversation memory management
-│   ├── data_loaders/
-│   │   ├── base.py                    # Abstract loader interface
-│   │   ├── csv_loader.py              # CSV file loader
-│   │   ├── pdf_loader.py              # PDF file loader
-│   │   ├── text_loader.py             # Text/Markdown loader
-│   │   └── factory.py                 # Loader factory pattern
-│   └── rag/
-│       ├── service.py                 # RAG service orchestration
-│       ├── embeddings.py              # Embedding models management
-│       ├── formatting/
-│       │   ├── context.py             # Context formatting & chunking
-│       │   └── tokenizer.py           # Token counting utilities
-│       └── search/
-│           ├── executor.py            # Search execution engine
-│           ├── lexical.py             # Lexical/BM25 search
-│           └── vector.py              # Vector/semantic search with ChromaDB
-├── config.py                          # Application settings
-main.py                               # Entry point
+```mermaid
+graph TD
+    A[User] -->|Query| B[AIAgent]
+    B -->|Check Memory| C(Summarization Middleware)
+    B -->|Context Request| D[RAG Service]
+    D -->|Query Expansion| E[Expansion LLM]
+    E -->|Multi-Queries| F[Hybrid Executor]
+    F -->|Vector Search| G[(ChromaDB)]
+    F -->|Lexical Search| H[BM25 Index]
+    F -->|Rerank| I[Cross-Encoder]
+    I -->|Best Context| B
 ```
 
 ### Key Components
 
-#### 1. RAG Service (`services/rag/`)
-Modular Retrieval-Augmented Generation system with the following components:
-
-**`service.py` - RAG Service Orchestration**
-- Coordinates document loading and vector store management
-- Executes search queries combining multiple strategies
-- Manages ChromaDB vector stores with incremental embedding
-- Dynamically adjusts context based on LLM model capabilities
-
-**`embeddings.py` - Embedding Models Management**
-- Loads and manages embedding models
-- Supports multiple embedding providers
-- Caches embeddings for performance
-
-**`formatting/` - Context Processing**
-- `context.py`: Chunking strategies and context formatting
-- `tokenizer.py`: Token counting utilities for context window management
-
-**`search/` - Search Execution**
-- `executor.py`: Coordinates different search strategies
-- `lexical.py`: BM25/lexical search for exact matches
-- `vector.py`: Semantic search using ChromaDB vector stores
-- Hybrid search combining both approaches for better results
-
-#### 2. AI Agent (`agents/ai_agent.py`)
-- Wraps LangChain chat models
-- Integrates conversation memory
-- Handles multi-turn interactions
-- Supports system messages and RAG context injection
-
-#### 3. Data Loaders (`services/data_loaders/`)
-- **Factory Pattern**: Automatic file type detection
-- **CSV Loader**: Converts tabular data to searchable text
-- **PDF Loader**: Extracts text from PDF documents
-- **Text Loader**: Handles TXT and Markdown files
-- **Extensible**: Easy to add new loader types
-
-#### 4. LLM Profiles (`llm/base.py`)
-- Manages multiple LLM configurations
-- Supports different providers (Groq, OpenAI, etc.)
-- Profile-based model selection (default, executor, supervisor)
-
-#### 5. Conversation Memory (`services/memory.py`)
-- Maintains conversation history
-- Automatic history trimming
-- Formatted output for LLM APIs
-
-#### 6. Logging (`services/logger.py`)
-- Centralized logging configuration
-- Structured logging across all modules
-
-## 🔧 Configuration
-
-### LLM Providers
-
-The system supports multiple LLM providers through LangChain:
-
-- **Groq**: Fast inference with Llama models
-- **OpenAI**: GPT models
-- **HuggingFace**: Open-source models
-- **Anthropic**: Claude models
-
-Configure providers in your `.env` file with appropriate API keys.
-
-### Model Context Windows
-
-The RAG service automatically adjusts retrieval based on known model context windows:
-
-| Model | Context Window | RAG Context (30%) |
-|-------|----------------|-------------------|
-| llama-3.1-8b-instant | 8,192 | ~2,457 tokens |
-| llama-3.1-70b-versatile | 8,192 | ~2,457 tokens |
-| mixtral-8x7b-32768 | 32,768 | ~9,830 tokens |
-| gpt-4-turbo | 128,000 | ~38,400 tokens |
-
-Unknown models default to 4,000 tokens for safety.
-
-### Embedding Model
-
-Default: `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`
-
-This model provides excellent multilingual support. You can change it by modifying the `embedding_model` parameter in `RAGService`.
-
-### Incremental Embedding
-
-The system supports **efficient incremental embedding** using ChromaDB's metadata filtering.
-
-#### How It Works
-
-1. **File Tracking**: Every loaded file is hashed (SHA-256) and associated with its stored embeddings in ChromaDB.
-2. **Change Detection**: On startup, the system:
-   - Scans the `data/` directory.
-   - Calculates current file hashes.
-   - Retrieves existing file hashes from ChromaDB.
-3. **Smart Updates**:
-   - **New Files**: Processed and added to the vector store.
-   - **Modified Files**: Old embeddings are removed, and new content is embedded/added.
-   - **Deleted Files**: Embeddings for files no longer in `data/` are automatically removed.
-   - **Unchanged Files**: Skipped entirely (instant load).
-
-#### Benefits
-
-- ⚡ **Zero Redundancy**: Only changed content is processed.
-- 🧹 **Self-Cleaning**: Automatically removes data from deleted files.
-- 🚀 **Fast Startup**: Subsequent runs with no changes are nearly instantaneous.
-
-## 🧪 Testing
-
-Run tests using pytest:
-
-```bash
-# Run all tests
-uv run pytest tests/ -v
-
-# Run fast tests (skip slow and integration tests)
-uv run pytest tests/ -v -m "not slow and not integration"
-
-# Run with coverage
-uv run pytest tests/ -v --cov=pokeconsultor
-```
-
-Or use the configured tasks:
-
-```bash
-# Run tests
-uv run task test
-
-# Run fast tests
-uv run task test-fast
-
-# Type checking
-uv run task type-check
-
-# Format code
-uv run task format
-```
-
-## 🎨 Customization
-
-### Adding New Data Sources
-
-1. Place your files in the `data/` directory
-2. The system automatically detects and loads supported formats
-3. Clear cache if needed: delete `.cache/chroma/`
-
-### Creating Custom Loaders
-
-To support new file formats, create a new loader class:
-
-```python
-from pokeconsultor.services.data_loaders.base import DataLoader
-
-class MyCustomLoader(DataLoader):
-    @staticmethod
-    def supports(file_path: Path) -> bool:
-        return file_path.suffix.lower() == '.myformat'
-    
-    def load(self, file_path: Path) -> list[str]:
-        # Your loading logic here
-        return documents
-```
-
-Then register it in `LoaderFactory`.
-
-### Configuring LLM Profiles
-
-Edit your `.env` file to add or modify LLM profiles. You can configure:
-- Provider (groq, openai, anthropic, etc.)
-- Model name
-- Temperature (0.0-2.0)
-- Max tokens
-- Timeout settings
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests.
-
-### Development Setup
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes with appropriate tests
-4. Run tests and type checking
-5. Submit a pull request
-
-## 📝 License
-
-This project is licensed under the **Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0)**.
-
-### You are free to:
-
-- ✅ **Share**: Copy and redistribute the material in any medium or format
-- ✅ **Adapt**: Remix, transform, and build upon the material
-
-### Under the following terms:
-
-- **Attribution**: You must give appropriate credit, provide a link to the license, and indicate if changes were made. You may do so in any reasonable manner, but not in any way that suggests the licensor endorses you or your use.
-
-- **NonCommercial**: You may not use the material for commercial purposes.
-
-- **No additional restrictions**: You may not apply legal terms or technological measures that legally restrict others from doing anything the license permits.
-
-For more details, see the [full license text](https://creativecommons.org/licenses/by-nc/4.0/legalcode).
-
-### Citation
-
-If you use this project, please cite:
-
-```
-PokeConsultor - AI-powered RAG Consultant System
-Author: Fábio Radicchi Belotto
-URL: https://github.com/frbelotto/PokeConsultor
-Year: 2025
-```
-
-## 🙏 Acknowledgments
-
-- Built with [LangChain](https://github.com/langchain-ai/langchain) for LLM orchestration
-- Vector storage powered by [ChromaDB](https://www.trychroma.com/)
-- Embeddings from [Sentence Transformers](https://www.sbert.net/)
-- Dependency management with [uv](https://github.com/astral-sh/uv)
-
-## 📬 Contact
-
-**Fábio Radicchi Belotto**
-- Email: fabio_belotto@hotmail.com
-- GitHub: [@frbelotto](https://github.com/frbelotto)
-
-## 🗺️ Roadmap
-
-- [ ] Web interface for easier interaction
-- [ ] Support for audio/video transcription
-- [ ] Multi-language UI support
-- [ ] Export conversation history
-- [ ] Advanced RAG strategies (hybrid search, re-ranking)
-- [ ] Integration with more LLM providers
-- [ ] Docker containerization
-- [ ] Cloud deployment guides
+| Module | Responsibility |
+| :--- | :--- |
+| **`agents/`** | Conversation orchestration and LangChain/LangGraph integration. |
+| **`services/rag/`** | Core retrieval engine, including hybrid search and reranking. |
+| **`services/memory/`** | Persistence and history compression (summarization) management. |
+| **`services/data_loaders/`** | Extensible system for processing various file types. |
+| **`ui/`** | CLI and GUI (PySide6) implementations. |
 
 ---
 
-**Made with ❤️ by Fábio Radicchi Belotto**
+## 📖 Usage
+
+### CLI Mode (Default)
+```bash
+uv run python main.py
+```
+
+### GUI Mode (Experimental)
+```bash
+uv run python main.py --gui
+```
+
+### CLI Commands
+- `memory`: View the current memory state and summaries.
+- `clear_memory`: Reset session history.
+- `debug`: Enable detailed retrieval and token logs.
+- `exit`: Close the application.
+
+---
+
+## 🛠️ Technical Configurations
+
+### Hybrid Search Weights
+The system uses Rank Reciprocal Fusion (RRF) to combine results. You can adjust search sensitivity within the search services if needed.
+
+### Context Management
+`RAGService` automatically calculates token limits based on the configured model (e.g., Llama-3.1, Mixtral), ensuring the final prompt never exceeds the LLM's context window.
+
+---
+
+## 🤝 Contributing
+
+Feedbacks and Pull Requests are very welcome! If you find a bug or have a feature idea, please open an Issue.
+
+---
+
+**Developed with ❤️ by [Fábio Radicchi Belotto](https://github.com/frbelotto)**
