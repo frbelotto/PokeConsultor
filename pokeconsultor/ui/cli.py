@@ -14,7 +14,6 @@ class PokeConsultorCLI:
         self.agent = agent
         self.rag_service = rag_service
         self.debug_mode = False
-        self.use_rag = True
 
     def print_header(self):
         """Print the application header."""
@@ -33,7 +32,6 @@ class PokeConsultorCLI:
         print("   • 'sair' ou 'exit' para encerrar")
         print("   • 'limpar' ou 'clear' para limpar o console")
         print("   • 'debug' para ativar/desativar modo debug")
-        print("   • 'rag' para ativar/desativar uso de contexto RAG")
         print("   • 'memória' ou 'memory' para ver histórico de conversas")
         print("   • 'limpar_memória' ou 'clear_memory' para apagar histórico")
         print("   • Ctrl+C para interromper")
@@ -65,13 +63,6 @@ class PokeConsultorCLI:
                     self.debug_mode = not self.debug_mode
                     status = "ATIVADO" if self.debug_mode else "DESATIVADO"
                     print(f"\n⚙️ Modo debug {status}")
-                    continue
-
-                # Check for RAG toggle
-                if query.lower() == "rag":
-                    self.use_rag = not self.use_rag
-                    status = "ATIVADO" if self.use_rag else "DESATIVADO"
-                    print(f"\n📚 Uso de RAG {status}")
                     continue
 
                 # Memory commands
@@ -108,43 +99,14 @@ class PokeConsultorCLI:
 
                 print("\n[AI] 🤖 Gerando resposta...")
 
-                # RAG Process
-                rag_results = []
-                retrieved_context = ""
-                used_indices = []
-
-                if self.use_rag:
-                    # Retrieve documents
-                    rag_results = self.rag_service.retrieve(query)
-
-                    if rag_results:
-                        print(
-                            f"✅ {len(rag_results)} documentos recuperados de fontes locais."
-                        )
-                        # Format context for prompt
-                        retrieved_context = self.rag_service.format_results(rag_results)
-
-                        # Identify which results are in the context (more robustly)
-                        cleaned_context = " ".join(retrieved_context.split())
-                        for i, doc in enumerate(rag_results, 1):
-                            # Use first 100 chars, normalized whitespace
-                            check_text = " ".join(doc.page_content[:100].split())
-                            if check_text and check_text in cleaned_context:
-                                used_indices.append(i)
-
-                # Build a single HumanMessage for the agent (agent.respond expects a HumanMessage)
+                # Build the user message
+                # The agent will decide whether to call retrieve_context tool
                 request = HumanMessage(content=query)
                 logger.info(f"User prompt: {request}")
 
-                ragcontext = HumanMessage(content="")
-                if self.use_rag:
-                    ragcontext = HumanMessage(
-                        content="Para responder a questão, saiba que o contexto relevante é: "
-                        + retrieved_context
-                    )
-
+                # No manual RAG - the agent will use the tool if needed
                 response_text = self.agent.respond(
-                    prompt=request, ragcontext=ragcontext
+                    prompt=request, ragcontext=HumanMessage(content="")
                 )
 
                 # Print response
@@ -153,9 +115,12 @@ class PokeConsultorCLI:
                 print("=" * 60)
                 print(f"\n{response_text}")
 
-                # Debug info
+                # Debug info (simplified - tool calls are logged automatically)
                 if self.debug_mode:
-                    self._print_debug_info(rag_results, retrieved_context, used_indices)
+                    print("\n" + "🔍" * 30)
+                    print("[DEBUG] 🔧 Tool-calling mode ativo")
+                    print("Verifique os logs para detalhes de chamadas de ferramentas")
+                    print("🔍" * 30)
 
                 print("-" * 60)
                 print("-" * 60)
@@ -163,50 +128,3 @@ class PokeConsultorCLI:
             except KeyboardInterrupt:
                 print("\n⚠️ Operação interrompida pelo usuário.")
                 continue
-
-    def _print_debug_info(self, rag_results, retrieved_context, used_indices):
-        """Print debug information about RAG process."""
-        print("\n" + "🔍" * 30)
-        print("[RAG] 📚 PIPELINE DE RECUPERAÇÃO E CONTEXTO")
-        print("🔍" * 30)
-
-        # Stage 1: All retrieved results
-        print("\n[STAGE 1] 📋 DOCUMENTOS RECUPERADOS (retrieve):")
-        print("=" * 80)
-        print(f"Total recuperado: {len(rag_results)} documentos\n")
-        for i, doc in enumerate(rag_results, 1):
-            content = doc.page_content
-            doc_preview = content[:160] + "..." if len(content) > 160 else content
-            doc_chars = len(content)
-
-            filename = doc.metadata.get("file_path", "unknown").split("/")[-1]
-            page = doc.metadata.get("page_number")
-            row = doc.metadata.get("row_number")
-
-            ref = filename
-            if page:
-                ref += f" (pág. {page})"
-            elif row:
-                ref += f" (linha {row})"
-
-            in_context_flag = " ✓ ENVIADO" if i in used_indices else ""
-            print(
-                f"  [{i:2d}] Fonte: {ref:30s} | {doc_chars:5d} chars{in_context_flag}"
-            )
-            print(f"       └─ {doc_preview}\n")
-
-        # Stage 2: What was sent to LLM
-        print("\n[STAGE 2] 📤 CONTEXTO ENVIADO À LLM (format_results):")
-        print("=" * 80)
-        if retrieved_context:
-            sent_count = len(used_indices)
-            sent_chars = len(retrieved_context)
-            approx_tokens = self.rag_service.count_tokens(retrieved_context)
-            print(
-                f"Total enviado: {sent_count} de {len(rag_results)} documentos "
-                f"| {sent_chars} chars | ~{approx_tokens} tokens"
-            )
-            print("-" * 80)
-            print(retrieved_context)
-        else:
-            print("Nenhum contexto enviado.")

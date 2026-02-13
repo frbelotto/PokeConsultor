@@ -24,7 +24,7 @@ def main():
         print(f"⚙️  Inicializando PokeConsultor (modelo: {llm.model})...")
 
         rag_service = RAGService(llm_model=llm.model)
-        agent = AIAgent(llm=llm, systemprompt=SYSTEM_MESSAGE)
+        agent = AIAgent(llm=llm, systemprompt=SYSTEM_MESSAGE, rag_service=rag_service)
 
         if args.gui:
             try:
