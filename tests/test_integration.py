@@ -11,10 +11,8 @@ The test uses monkeypatch to stub heavy external dependencies.
 
 from __future__ import annotations
 
-import importlib
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable, Iterator
 
 import pytest
 from langchain_core.documents import Document
@@ -111,25 +109,6 @@ class FakeRAGService:
 
     def count_tokens(self, text: str) -> int:
         return len(text.split())
-
-
-def _input_sequence(*items: str) -> Callable[[str], str]:
-    """Build a fake input() function yielding a fixed sequence of user entries."""
-
-    iterator: Iterator[str] = iter(items)
-
-    def _fake_input(prompt: str) -> str:  # noqa: D401 - succinct
-        del prompt  # unused
-        try:
-            return next(iterator)
-        except StopIteration:
-            # If called more than the provided items, exit gracefully
-            return "exit"
-
-    return _fake_input
-
-
-import pytest
 
 
 @pytest.fixture

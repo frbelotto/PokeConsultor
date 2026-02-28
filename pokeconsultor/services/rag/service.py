@@ -1,16 +1,17 @@
 """RAG (Retrieval-Augmented Generation) service facade.
 
 Unified interface to the RAG subsystem using hybrid retrieval (lexical + vector)
-with rank fusion (RRF) and optional reranking for improved precision.
+with rank fusion (RRF).
 
-Implements intelligent caching with incremental embedding support through
+Implements intelligent caching with incremental embedding support.
 """
 
 import hashlib
-from pathlib import Path
 import threading
 from datetime import datetime
-from typing import Any, List
+from pathlib import Path
+from typing import Any
+
 from langchain_core.documents import Document
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
@@ -22,10 +23,6 @@ from pokeconsultor.services.rag.formatting.tokenizer import TokenizerService
 from pokeconsultor.services.rag.search.executor import HybridExecutor
 from pokeconsultor.services.rag.search.lexical import LexicalSearcher
 from pokeconsultor.services.rag.search.vector import VectorSearcher
-from pokeconsultor.llm.base import llm_profiles
-from langchain.chat_models import init_chat_model
-from langchain_core.messages import SystemMessage, HumanMessage
-from langchain_core.documents import Document
 
 
 class RAGService(BaseModel):
@@ -36,17 +33,12 @@ class RAGService(BaseModel):
 
     # Retrieval configuration (hybrid is standard)
     retrieve_k: int = Field(
-        default=5,
+        default=3,
         gt=0,
         description="Top-K to retrieve from each retriever (lexical & vector)",
     )
-    rerank_k: int | None = Field(
-        default=3,
-        ge=0,
-        description="Documents to keep after reranking (None disables)",
-    )
     lexical_k: int | None = Field(
-        default=None,
+        default=2,
         ge=1,
         description="Top-K from lexical retriever (defaults to retrieve_k)",
     )
@@ -59,10 +51,6 @@ class RAGService(BaseModel):
         default=60,
         gt=0,
         description="RRF constant for rank fusion",
-    )
-    rerank_method: str = Field(
-        default="cross_encoder",
-        description="Rerank method for hybrid: 'none' | 'cosine' | 'cross_encoder'",
     )
 
     # Cache configuration (passed to EmbeddingService)
@@ -82,7 +70,6 @@ class RAGService(BaseModel):
     _lexical_searcher: LexicalSearcher = PrivateAttr()
     _vector_searcher: VectorSearcher = PrivateAttr()
     _tokenizer_service: TokenizerService = PrivateAttr()
-    _expansion_llm: Any = PrivateAttr()
 
     def model_post_init(self, __context: Any) -> None:
         """Initialize internal services with intelligent caching.
@@ -96,21 +83,6 @@ class RAGService(BaseModel):
         """
 
         self._tokenizer_service = TokenizerService(llm_model=self.llm_model)
-
-        # Initialize expansion LLM (using executor profile for speed)
-        executor_profile = llm_profiles.get_profile("executor")
-        api_key = (
-            executor_profile.api_key.get_secret_value()
-            if executor_profile.api_key
-            else ""
-        )
-
-        self._expansion_llm = init_chat_model(
-            f"{executor_profile.provider}:{executor_profile.model}",
-            temperature=0,
-            max_tokens=100,
-            api_key=api_key,
-        )
 
         # EmbeddingService with cache setting propagated
         # EmbeddingService with cache setting propagated. Inject shared
@@ -134,8 +106,6 @@ class RAGService(BaseModel):
             lexical_k=self.lexical_k,
             vector_k=self.vector_k,
             rrf_k=self.rrf_k,
-            rerank_method=self.rerank_method,
-            rerank_k=self.rerank_k,
         )
 
         self._load_with_incremental_embedding()
@@ -171,17 +141,14 @@ class RAGService(BaseModel):
         source_files = self._discover_source_files()
 
         # Detect changes
-        files_to_embed: list[Path] = []
         # Lógica incremental baseada nos metadados do ChromaDB
         chroma_hashes = self._embedding_service.get_file_hashes()
 
         files_to_embed: list[Path] = []
         files_to_delete: set[str] = set(chroma_hashes)
-        file_hash_map: dict[str, Path] = {}
 
         for file_path in source_files:
             file_hash = self.calculate_file_hash(file_path)
-            file_hash_map[file_hash] = file_path
             if file_hash not in chroma_hashes:
                 files_to_embed.append(file_path)
             else:
@@ -268,21 +235,10 @@ class RAGService(BaseModel):
             logger.exception("Error loading file %s", file_path.name)
             return []
 
-    def retrieve(self, query: str, expand: bool = True) -> List[Document]:
-        """Retrieve relevant documents using hybrid search with optional expansion."""
-        queries = [query]
-        if expand:
-            try:
-                expanded = self.expand_query(query)
-                if expanded:
-                    queries.extend(expanded)
-                    # We keep the print for user feedback in CLI, but ensure logger has it too
-                    logger.debug(f"Query expanded: {expanded}")
-                    print(f"\n✨ CONSULTAS EXPANDIDAS: {', '.join(expanded)}")
-            except Exception:
-                logger.warning("Query expansion failed")
+    def retrieve(self, query: str) -> list[Document]:
+        """Retrieve relevant documents using hybrid retrieval."""
 
-        results = self._retriever_service._get_relevant_documents_multi(queries)
+        results = self._retriever_service._get_relevant_documents_multi([query])
 
         # Add temporal IDs for tracing in UI/debug
         for i, doc in enumerate(results, 1):
@@ -290,41 +246,9 @@ class RAGService(BaseModel):
 
         return results
 
-    def expand_query(self, query: str) -> list[str]:
-        """Generate variations of the query to improve retrieval coverage."""
-        prompt = (
-            "Gere 3 variações curtas de busca (keywords) em PORTUGUÊS para a pergunta abaixo.\n"
-            "IMPORTANTE: Use nomes em na linguagem nativa da pergunta (ex: use 'Gina' em vez de 'Ginny').\n"
-            "Inclua termos como 'família', 'filhos', 'esposa/marido' se relevante.\n"
-            "EXEMPLO: 'quem casou com harry?' -> 'Gina Weasley; família Harry Potter; filhos Harry Potter'\n"
-            "RETORNE APENAS AS VARIAÇÕES SEPARADAS POR PONTO E VÍRGULA.\n"
-            "NÃO ADICIONE EXPLICAÇÕES OU PREÂMBULOS.\n"
-            f"Pergunta: {query}"
-        )
-
-        try:
-            response = self._expansion_llm.invoke(
-                [
-                    SystemMessage(
-                        content="Você é um motor de busca. Retorne apenas keywords."
-                    ),
-                    HumanMessage(content=prompt),
-                ]
-            )
-
-            content = str(response.content).strip()
-            if ":" in content and len(content.split(":")[0]) < 30:
-                content = content.split(":", 1)[1].strip()
-
-            variations = [v.strip() for v in content.split(";") if v.strip()]
-            return variations[:3]
-        except Exception:
-            logger.exception("Failed to expand query")
-            return []
-
     def format_results(
         self,
-        results: List[Document] | List[tuple[Document, float]],
+        results: list[Document] | list[tuple[Document, float]],
         max_tokens: int | None = None,
         compact: bool = True,
     ) -> str:

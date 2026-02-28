@@ -392,15 +392,21 @@ class TestCSVLoader:
 class TestTextLoader:
     """Test suite for TextLoader class."""
 
-    def test_supports_text_extensions(self) -> None:
-        """Test that TextLoader recognizes text file extensions."""
+    @pytest.mark.parametrize(
+        ("file_name", "expected"),
+        [
+            ("test.txt", True),
+            ("test.md", True),
+            ("test.markdown", True),
+            ("test.TXT", True),
+            ("test.csv", False),
+            ("test.pdf", False),
+        ],
+    )
+    def test_supports_text_extensions(self, file_name: str, expected: bool) -> None:
+        """Test that TextLoader recognizes supported and unsupported extensions."""
         loader = TextLoader()
-        assert loader.supports(Path("test.txt"))
-        assert loader.supports(Path("test.md"))
-        assert loader.supports(Path("test.markdown"))
-        assert loader.supports(Path("test.TXT"))
-        assert not loader.supports(Path("test.csv"))
-        assert not loader.supports(Path("test.pdf"))
+        assert loader.supports(Path(file_name)) is expected
 
     def test_load_valid_text_file(self, temp_text_file: Path) -> None:
         """Test loading a valid text file with multiple paragraphs."""
@@ -534,23 +540,21 @@ class TestPDFLoader:
 class TestLoaderFactory:
     """Test suite for LoaderFactory class."""
 
-    def test_get_loader_for_csv(self) -> None:
-        """Test factory returns CSVLoader for CSV files."""
-        loader = LoaderFactory.get_loader(Path("test.csv"))
-        assert isinstance(loader, CSVLoader)
-
-    def test_get_loader_for_text(self) -> None:
-        """Test factory returns TextLoader for text files."""
-        loader = LoaderFactory.get_loader(Path("test.txt"))
-        assert isinstance(loader, TextLoader)
-
-        loader = LoaderFactory.get_loader(Path("test.md"))
-        assert isinstance(loader, TextLoader)
-
-    def test_get_loader_for_pdf(self) -> None:
-        """Test factory returns PDFLoader for PDF files."""
-        loader = LoaderFactory.get_loader(Path("test.pdf"))
-        assert isinstance(loader, PDFLoader)
+    @pytest.mark.parametrize(
+        ("file_name", "loader_type"),
+        [
+            ("test.csv", CSVLoader),
+            ("test.txt", TextLoader),
+            ("test.md", TextLoader),
+            ("test.pdf", PDFLoader),
+        ],
+    )
+    def test_get_loader_by_extension(
+        self, file_name: str, loader_type: type[DataLoader]
+    ) -> None:
+        """Test factory returns the expected loader for each supported extension."""
+        loader = LoaderFactory.get_loader(Path(file_name))
+        assert isinstance(loader, loader_type)
 
     def test_get_loader_unsupported_format_raises_error(self) -> None:
         """Test that unsupported file format raises ValueError."""
@@ -567,13 +571,19 @@ class TestLoaderFactory:
         assert ".pdf" in formats
         assert all(fmt.startswith(".") for fmt in formats)
 
-    def test_is_supported(self) -> None:
+    @pytest.mark.parametrize(
+        ("file_name", "expected"),
+        [
+            ("test.csv", True),
+            ("test.txt", True),
+            ("test.pdf", True),
+            ("test.docx", False),
+            ("test.xlsx", False),
+        ],
+    )
+    def test_is_supported(self, file_name: str, expected: bool) -> None:
         """Test checking if file format is supported."""
-        assert LoaderFactory.is_supported(Path("test.csv"))
-        assert LoaderFactory.is_supported(Path("test.txt"))
-        assert LoaderFactory.is_supported(Path("test.pdf"))
-        assert not LoaderFactory.is_supported(Path("test.docx"))
-        assert not LoaderFactory.is_supported(Path("test.xlsx"))
+        assert LoaderFactory.is_supported(Path(file_name)) is expected
 
 
 # ============================================================================

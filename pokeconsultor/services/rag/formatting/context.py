@@ -33,7 +33,7 @@ def _format_compact(
 ) -> str:
     """Compact format: minimal headers, deduplicated content."""
     seen_hashes: set[int] = set()
-    unique_results: List[Tuple[str, float]] = []
+    unique_results: List[Tuple[Union[Document, str], float]] = []
 
     for item, score in results:
         content = item.page_content if isinstance(item, Document) else item

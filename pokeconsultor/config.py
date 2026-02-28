@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from threading import Lock
+from typing import Any, ClassVar
 
 from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -21,6 +22,11 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="forbid",
     )
+
+    # Singleton control (kept explicit to preserve current project pattern)
+    _instance: ClassVar[Settings | None] = None
+    _initialized: ClassVar[bool] = False
+    _lock: ClassVar[Lock] = Lock()
 
     # Optional API Keys for different providers
     GROQ_API_KEY: SecretStr | None = Field(
@@ -98,6 +104,17 @@ class Settings(BaseSettings):
         description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
     )
 
+    AGENT_RECURSION_LIMIT: int = Field(
+        default=12,
+        gt=0,
+        description="Maximum number of graph steps allowed per agent interaction",
+    )
+    AGENT_MAX_TOOL_CALLS_PER_TURN: int = Field(
+        default=3,
+        gt=0,
+        description="Maximum number of tool calls allowed in a single interaction",
+    )
+
     # Summarization Configuration
     # ==============================================================#
     SUMMARIZATION_ENABLED: bool = Field(
@@ -124,15 +141,22 @@ class Settings(BaseSettings):
 
     def __new__(cls, *args: Any, **kwargs: Any) -> Settings:
         """Ensure a single instance is created for the lifetime of the process."""
-        if not hasattr(cls, "_instance"):
-            cls._instance = super().__new__(cls)
-            cls._initialized = False
-        return cls._instance
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    instance = super().__new__(cls)
+                    cls._instance = instance
+                    cls._initialized = False
+        return cls._instance  # type: ignore[return-value]
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Initialize settings only once to avoid reloading environment data."""
-        # Only initialize if this is the first time __init__ is called
-        if not getattr(self.__class__, "_initialized", False):
+        if getattr(self.__class__, "_initialized", False):
+            return
+
+        with self.__class__._lock:
+            if getattr(self.__class__, "_initialized", False):
+                return
             super().__init__(*args, **kwargs)
             self.__class__._initialized = True
 

@@ -2,12 +2,11 @@
 
 import sys
 import threading
+from typing import Any
 
 from langchain.messages import HumanMessage
-from pokeconsultor.services.logger import logger
-from langchain_core.prompts import ChatPromptTemplate
 from PySide6.QtCore import QObject, Qt, QUrl, Signal
-from PySide6.QtGui import QAction, QDesktopServices, QFont, QTextCursor
+from PySide6.QtGui import QDesktopServices, QFont, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -17,7 +16,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMenu,
-    QMenuBar,
     QPushButton,
     QSplitter,
     QTextEdit,
@@ -25,23 +23,22 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from pokeconsultor.llm.prompts import SYSTEM_MESSAGE
+from pokeconsultor.services.logger import logger
 
 
 class WorkerSignals(QObject):
     """Signals for the background worker."""
 
-    response_ready = Signal(str, list, str, list)
+    response_ready = Signal(str, str)
     error_occurred = Signal(str)
 
 
 class PokeConsultorGUI(QMainWindow):
     """PySide6 interface for PokeConsultor."""
 
-    def __init__(self, agent, rag_service):
+    def __init__(self, agent: Any) -> None:
         super().__init__()
         self.agent = agent
-        self.rag_service = rag_service
         self.signals = WorkerSignals()
         self.signals.response_ready.connect(self._on_response_ready)
         self.signals.error_occurred.connect(self._on_error)
@@ -49,7 +46,7 @@ class PokeConsultorGUI(QMainWindow):
 
         self.init_ui()
 
-    def init_ui(self):
+    def init_ui(self) -> None:
         """Initialize the GUI layout."""
         self.setWindowTitle("PokeConsultor - AI Assistant")
         self.resize(1000, 700)
@@ -60,7 +57,7 @@ class PokeConsultorGUI(QMainWindow):
         main_layout = QVBoxLayout(central_widget)
 
         # Splitter for Chat and Debug
-        self.splitter = QSplitter(Qt.Horizontal)
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # --- Left Side: Chat ---
         chat_container = QWidget()
@@ -88,7 +85,7 @@ class PokeConsultorGUI(QMainWindow):
         self.side_panel = QWidget()
         self.side_layout = QVBoxLayout(self.side_panel)
 
-        self.side_label = QLabel("🔍 Informações de Contexto / Debug")
+        self.side_label = QLabel("🔍 Informações do Agente / Debug")
         self.side_label.setStyleSheet("font-weight: bold; font-size: 14px;")
         self.side_layout.addWidget(self.side_label)
 
@@ -107,9 +104,15 @@ class PokeConsultorGUI(QMainWindow):
         # --- Bottom Toolbar: Toggles ---
         toolbar_layout = QHBoxLayout()
 
-        self.rag_checkbox = QCheckBox("Usar RAG")
-        self.rag_checkbox.setChecked(True)
-        toolbar_layout.addWidget(self.rag_checkbox)
+        self.rag_status_label = QLabel("RAG: automático (tool do agente)")
+        self.rag_status_label.setStyleSheet(
+            "padding: 4px 8px; border-radius: 6px; background-color: #2d3436; color: #dfe6e9;"
+        )
+        toolbar_layout.addWidget(self.rag_status_label)
+
+        self.tool_usage_label = QLabel("Última interação: sem uso de tool")
+        self.tool_usage_label.setStyleSheet("font-size: 12px; color: #636e72;")
+        toolbar_layout.addWidget(self.tool_usage_label)
 
         self.debug_checkbox = QCheckBox("Modo Debug")
         self.debug_checkbox.setChecked(True)
@@ -130,7 +133,7 @@ class PokeConsultorGUI(QMainWindow):
 
         # Help Button
         self.help_button = QPushButton("Ajuda")
-        self.help_button.setCursor(Qt.PointingHandCursor)
+        self.help_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.help_button.setStyleSheet(button_style)
 
         help_menu = QMenu(self)
@@ -141,7 +144,7 @@ class PokeConsultorGUI(QMainWindow):
 
         # Clear Memory Button
         self.clear_mem_button = QPushButton("Limpar Memória")
-        self.clear_mem_button.setCursor(Qt.PointingHandCursor)
+        self.clear_mem_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.clear_mem_button.setStyleSheet(button_style)
         self.clear_mem_button.clicked.connect(self.clear_memory)
         toolbar_layout.addWidget(self.clear_mem_button)
@@ -150,10 +153,14 @@ class PokeConsultorGUI(QMainWindow):
 
         # Initial message
         self._append_chat(
-            "🤖 <b>Sistema pronto!</b> Faça suas perguntas sobre Pokémon.", "system"
+            (
+                "🤖 <b>Sistema pronto!</b> Faça suas perguntas sobre Pokémon. "
+                "A busca de contexto (RAG) é acionada automaticamente quando necessário."
+            ),
+            "system",
         )
 
-    def show_help(self):
+    def show_help(self) -> None:
         """Show the help dialog with README content."""
         try:
             with open("README.md", "r", encoding="utf-8") as f:
@@ -178,15 +185,15 @@ class PokeConsultorGUI(QMainWindow):
 
         dialog.exec()
 
-    def open_repo(self):
+    def open_repo(self) -> None:
         """Open the repository URL in the default browser."""
         QDesktopServices.openUrl(QUrl("https://github.com/frbelotto/PokeConsultor"))
 
-    def _toggle_debug_panel(self, state):
+    def _toggle_debug_panel(self, state: int) -> None:
         """Show/hide the debug side panel."""
-        self.side_panel.setVisible(state == Qt.Checked.value)
+        self.side_panel.setVisible(state == Qt.CheckState.Checked.value)
 
-    def _append_chat(self, text, sender):
+    def _append_chat(self, text: str, sender: str) -> None:
         """Append text to the chat display."""
         # Use system text color as default
         default_color = self.palette().color(self.foregroundRole()).name()
@@ -202,9 +209,9 @@ class PokeConsultorGUI(QMainWindow):
             prefix = ""
 
         self.chat_display.append(f"<div style='color: {color};'>{prefix}{text}</div>")
-        self.chat_display.moveCursor(QTextCursor.End)
+        self.chat_display.moveCursor(QTextCursor.MoveOperation.End)
 
-    def send_message(self):
+    def send_message(self) -> None:
         """Handle sending a message."""
         query = self.input_field.text().strip()
         if not query:
@@ -221,36 +228,12 @@ class PokeConsultorGUI(QMainWindow):
         thread.daemon = True
         thread.start()
 
-    def _process_query(self, query):
+    def _process_query(self, query: str) -> None:
         """Background thread to process the query."""
         try:
-            use_rag = self.rag_checkbox.isChecked()
-
-            rag_results = []
-            retrieved_context = ""
-            used_indices = []
-
-            if use_rag:
-                rag_results = self.rag_service.retrieve(query)
-                if rag_results:
-                    retrieved_context = self.rag_service.format_results(rag_results)
-                    cleaned_context = " ".join(retrieved_context.split())
-                    for i, doc in enumerate(rag_results, 1):
-                        check_text = " ".join(doc.page_content[:100].split())
-                        if check_text and check_text in cleaned_context:
-                            used_indices.append(i)
-
-                            request = HumanMessage(content=query)
-                logger.info(f"User prompt: {request}")
-
-            ragcontext = HumanMessage(content="")
-            if use_rag:
-                ragcontext = HumanMessage(
-                    content="Para responder a questão, saiba que o contexto relevante é: "
-                    + retrieved_context
-                )
-
-            response_text = self.agent.respond(prompt=request, ragcontext=ragcontext)
+            request = HumanMessage(content=query)
+            logger.info(f"User prompt: {request}")
+            response_text = self.agent.respond(prompt=request)
 
             # Garantir que a resposta seja string
             if not isinstance(response_text, str):
@@ -259,82 +242,89 @@ class PokeConsultorGUI(QMainWindow):
                 except Exception as e:
                     response_text = f"[ERRO ao converter resposta da IA: {e}]"
 
-            # Format debug info
-            self.debug_info = self._format_debug_info(
-                rag_results, retrieved_context, used_indices
-            )
+            debug_text = self._format_debug_info()
 
-            self.signals.response_ready.emit(
-                response_text, rag_results, retrieved_context, used_indices
-            )
+            self.signals.response_ready.emit(response_text, debug_text)
 
         except Exception as e:
             self.signals.error_occurred.emit(str(e))
 
-    def _on_response_ready(
-        self, response_text, rag_results, retrieved_context, used_indices
-    ):
+    def _on_response_ready(self, response_text: str, debug_text: str) -> None:
         """Handle UI update when response is ready."""
         self._append_chat(response_text, "ai")
 
         # Update debug panel
-        debug_text = self._format_debug_info(
-            rag_results, retrieved_context, used_indices
-        )
         self.debug_display.setPlainText(debug_text)
+        self._update_tool_usage_badge()
 
         self.input_field.setEnabled(True)
         self.send_button.setEnabled(True)
         self.input_field.setFocus()
 
-    def _on_error(self, error_msg):
+    def _on_error(self, error_msg: str) -> None:
         """Handle errors during processing."""
         self._append_chat(f"❌ Erro: {error_msg}", "system")
         self.input_field.setEnabled(True)
         self.send_button.setEnabled(True)
 
-    def _format_debug_info(self, rag_results, retrieved_context, used_indices):
-        """Format debug information for the side panel."""
+    def _format_debug_info(self) -> str:
+        """Format graph state history for the side panel."""
+        history = self.agent.get_state_history()
+        tool_usage = self.agent.get_latest_interaction_tool_usage()
+
         output = []
-        output.append("=== STAGE 1: DOCUMENTOS RECUPERADOS ===")
-        output.append(f"Total: {len(rag_results)}\n")
+        output.append("=== ESTADOS RECENTES DO AGENTE ===")
+        output.append(f"Total: {len(history)}\n")
 
-        for i, doc in enumerate(rag_results, 1):
-            filename = doc.metadata.get("file_path", "unknown").split("/")[-1]
-            page = doc.metadata.get("page_number")
-            row = doc.metadata.get("row_number")
-            ref = filename
-            if page:
-                ref += f" (pág. {page})"
-            elif row:
-                ref += f" (linha {row})"
+        used = "SIM" if tool_usage["used"] else "NÃO"
+        names = ", ".join(tool_usage["tool_names"]) if tool_usage["tool_names"] else "-"
+        output.append("=== TOOL USAGE (ÚLTIMA INTERAÇÃO) ===")
+        output.append(f"Tool usada: {used}")
+        output.append(f"Tools: {names}")
+        output.append(f"Quantidade de chamadas: {tool_usage['tool_calls']}\n")
 
-            in_context = " [SENT]" if i in used_indices else ""
-            output.append(f"[{i:2d}]{in_context} {ref}")
-            output.append(f"   {doc.page_content[:100]}...\n")
+        if not history:
+            output.append("Nenhum estado disponível.")
+            return "\n".join(output)
 
-        output.append("\n=== STAGE 2: CONTEXTO ENVIADO ===")
-        if retrieved_context:
-            approx_tokens = self.rag_service.count_tokens(retrieved_context)
-            output.append(f"Tokens aprox: {approx_tokens}")
+        for i, state in enumerate(history[:3], 1):
+            output.append(f"[State {i}]")
+            output.append(str(state))
             output.append("-" * 40)
-            output.append(retrieved_context)
-        else:
-            output.append("Nenhum contexto enviado.")
 
         return "\n".join(output)
 
-    def clear_memory(self):
+    def clear_memory(self) -> None:
         """Clear the AI agent memory and UI displays."""
-        self.agent._agent.checkpointer.delete_thread(str(self.agent._threadid))
+        self.agent.clear_thread_memory()
         self.chat_display.clear()
         self.debug_display.clear()
+        self.tool_usage_label.setText("Última interação: sem uso de tool")
         self._append_chat("🧠 Memória e histórico limpos!", "system")
 
+    def _update_tool_usage_badge(self) -> None:
+        """Update toolbar label with latest tool usage summary."""
+        tool_usage = self.agent.get_latest_interaction_tool_usage()
 
-def run_gui(agent, rag_service):
+        if tool_usage["used"]:
+            names = (
+                ", ".join(tool_usage["tool_names"])
+                if tool_usage["tool_names"]
+                else "tool"
+            )
+            self.tool_usage_label.setText(
+                f"Última interação: usou {tool_usage['tool_calls']} chamada(s) ({names})"
+            )
+            self.tool_usage_label.setStyleSheet("font-size: 12px; color: #00b894;")
+            return
+
+        self.tool_usage_label.setText("Última interação: sem uso de tool")
+        self.tool_usage_label.setStyleSheet("font-size: 12px; color: #636e72;")
+
+
+def run_gui(agent: Any) -> None:
     """Entry point for the GUI version."""
     app = QApplication(sys.argv)
-    window = PokeConsultorGUI(agent, rag_service)
+    window = PokeConsultorGUI(agent)
     window.show()
     sys.exit(app.exec())

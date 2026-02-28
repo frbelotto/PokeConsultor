@@ -5,6 +5,7 @@ import sys
 from pokeconsultor.agents.ai_agent import AIAgent
 from pokeconsultor.services.logger import logger
 from pokeconsultor.services.rag.service import RAGService
+from pokeconsultor.services.rag.tooling import build_rag_context_tool
 from pokeconsultor.llm.base import llm_profiles
 from pokeconsultor.ui.cli import PokeConsultorCLI
 from pokeconsultor.llm.prompts import SYSTEM_MESSAGE
@@ -24,19 +25,20 @@ def main():
         print(f"⚙️  Inicializando PokeConsultor (modelo: {llm.model})...")
 
         rag_service = RAGService(llm_model=llm.model)
-        agent = AIAgent(llm=llm, systemprompt=SYSTEM_MESSAGE, rag_service=rag_service)
+        rag_tool = build_rag_context_tool(rag_service)
+        agent = AIAgent(llm=llm, systemprompt=SYSTEM_MESSAGE, tools=[rag_tool])
 
         if args.gui:
             try:
                 from pokeconsultor.ui.gui import run_gui
 
-                run_gui(agent, rag_service)
+                run_gui(agent)
             except ImportError as e:
                 print(f"\n❌ Erro ao carregar GUI: {e}")
                 print("Certifique-se de que o PySide6 está instalado.")
                 sys.exit(1)
         else:
-            cli = PokeConsultorCLI(agent, rag_service)
+            cli = PokeConsultorCLI(agent)
             cli.print_header()
             cli.run()
 

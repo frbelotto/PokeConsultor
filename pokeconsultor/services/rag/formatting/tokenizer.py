@@ -1,6 +1,6 @@
 """Tokenizer utilities for accurate token counting and text trimming."""
 
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr
 
@@ -144,7 +144,8 @@ class TokenizerService(BaseModel):
         try:
             token_ids = self._tokenizer.encode(text, add_special_tokens=False)
             token_ids = token_ids[:token_budget]
-            return self._tokenizer.decode(token_ids, skip_special_tokens=True)
+            decoded = self._tokenizer.decode(token_ids, skip_special_tokens=True)
+            return cast(str, decoded)
         except Exception as exc:
             logger.warning("Token trim failed, using heuristic: %s", exc)
             return text[: max(0, token_budget * 4)]

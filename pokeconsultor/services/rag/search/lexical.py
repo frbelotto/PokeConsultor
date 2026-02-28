@@ -94,7 +94,7 @@ class LexicalSearcher:
         self.index = SimpleLexicalIndex()
         self.vector_store: Chroma
 
-    def build_from_documents(self, documents: Iterable[str]) -> None:
+    def build_from_documents(self, documents: Iterable[Document]) -> None:
         self.index.build(documents)
 
     def build_from_vector_store(self, vector_store: Any) -> None:

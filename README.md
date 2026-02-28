@@ -11,11 +11,8 @@ Intelligent AI Consultant using **RAG (Retrieval-Augmented Generation)** to answ
 ## 🌟 Key Features
 
 - **🧠 Advanced Memory System**: Integrated with LangChain's `SummarizationMiddleware` for intelligent context management and automatic summarization of long conversations.
-- **🔧 Tool-Calling Architecture**: RAG exposed as a LangChain tool - the LLM autonomously decides when to retrieve context, improving efficiency and observability.
-- **🔍 Elite Hybrid Search**: Combines semantic (vector) search with lexical search (BM25) using **Rank Fusion (RRF)** and cross-encoder reranking for maximum precision.
-- **⚡ Optimized for Speed**: Smart defaults (k=3 documents) and focused queries prevent slow multiple retrievals.
-- **📊 Full Observability**: Explicit logging of tool calls, parameters, and retrieval statistics.
-- **💡 Incremental Embeddings**: Intelligent system that detects new, modified, or deleted files, processing only what's necessary.
+- **🔍 Hybrid Search**: Combines semantic (vector) search with lexical search using **Rank Fusion (RRF)**.
+- **⚡ Incremental Embeddings**: Intelligent system that detects new, modified, or deleted files, processing only what's necessary.
 - **📚 Multi-format Support**: Automatic loading of PDF, CSV, TXT, Markdown, and more via Factory Pattern.
 - **🖥️ Dual Interfaces**: Choose between a powerful interactive CLI or a modern graphical interface built with **PySide6**.
 - **🎯 LLM Profiles**: Granular model configuration for different roles (Executor, Supervisor, Default).
@@ -48,55 +45,43 @@ Intelligent AI Consultant using **RAG (Retrieval-Augmented Generation)** to answ
 
 ## 🏗️ System Architecture
 
-The system uses **LangChain Tools** for intelligent RAG retrieval, allowing the LLM to autonomously decide when to fetch context:
+The system is divided into decoupled modules for easy maintenance and expansion:
 
 ```mermaid
 graph TD
     A[User] -->|Query| B[AIAgent]
     B -->|Check Memory| C(Summarization Middleware)
-    B -->|Invoke with Tools| D[LLM with Tools]
-    D -->|Decides: Need Context?| E{Tool Call?}
-    E -->|Yes| F[retrieve_context Tool]
-    E -->|No| G[Direct Response]
-    F -->|Execute| H[RAG Service]
-    H -->|Hybrid Search| I[Hybrid Executor]
-    I -->|Vector Search| J[(ChromaDB)]
-    I -->|Lexical Search| K[BM25 Index]
-    I -->|RRF Fusion| L[Merged Results]
-    L -->|Rerank| M[Cross-Encoder]
-    M -->|Best Context| F
-    F -->|Return Context| D
-    D -->|Generate Answer| B
-    B -->|Response| A
+    B -->|Context Request| D[RAG Service]
+   D -->|Query| F[Hybrid Executor]
+    F -->|Vector Search| G[(ChromaDB)]
+   F -->|Lexical Search| H[Lexical Index]
+   F -->|Best Context| B
 ```
 
 ### Key Components
 
 | Module | Responsibility |
 | :--- | :--- |
-| **`agents/`** | Conversation orchestration with LangChain/LangGraph and tool-calling integration. |
-| **`services/rag/`** | Core retrieval engine exposed as a tool, including hybrid search and reranking. |
-| **`services/rag/rag_tool.py`** | LangChain tool that exposes RAG as a callable capability for the LLM. |
+| **`agents/`** | Conversation orchestration and LangChain/LangGraph integration. |
+| **`services/rag/`** | Core retrieval engine, including hybrid search and RRF fusion. |
 | **`services/memory/`** | Persistence and history compression (summarization) management. |
 | **`services/data_loaders/`** | Extensible system for processing various file types. |
 | **`ui/`** | CLI and GUI (PySide6) implementations. |
 
-### How Tool-Calling Works
+### Tool Calling Flow (LangChain)
 
-1. **User asks a question** → Sent to AIAgent
-2. **LLM analyzes the query** → Decides if it needs context from the knowledge base
-3. **If context needed** → LLM calls `retrieve_context` tool with a focused query
-4. **Tool executes hybrid search** → Combines lexical (BM25) + semantic (vector) search
-5. **Results are reranked** → Cross-encoder ensures precision
-6. **Context returned to LLM** → LLM generates answer using the retrieved information
-7. **Response sent to user** → With full observability of tool calls in logs
+The retrieval capability is exposed as a LangChain tool named `retrieve_context`.
+This keeps retrieval decoupled from response generation and allows the LLM to call
+the tool multiple times whenever needed.
 
-**Benefits:**
-- 🎯 **Intelligent retrieval**: LLM only fetches context when needed
-- 📊 **Better observability**: Tool calls are explicitly logged
-- 🔧 **Separation of concerns**: RAG is a reusable tool, not hardcoded logic
-- ⚡ **Optimized for speed**: Default k=3 documents, max k=10 to avoid slow queries
-- 🧠 **Smart queries**: LLM can make multiple focused calls instead of broad searches
+High-level flow:
+
+1. User sends a question.
+2. The agent decides if retrieval is necessary.
+3. The agent calls `retrieve_context(query)`.
+4. The tool runs hybrid retrieval (lexical + vector + RRF).
+5. The tool returns structured output (`context`, `sources`, `retrieved_docs`).
+6. The model synthesizes the final answer using only retrieved context.
 
 ---
 

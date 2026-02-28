@@ -20,7 +20,11 @@ class LLMProfile(BaseModel):
 
 
 class LLMProfiles(BaseModel):
-    """Manager for multiple LLM profiles loaded from Settings configuration."""
+    """Manager for multiple LLM profiles loaded from Settings configuration.
+
+    Keeping multiple profiles allows future multi-agent flows (e.g.,
+    executor + supervisor) without changing the configuration contract.
+    """
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
