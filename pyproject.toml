@@ -77,6 +77,9 @@ explicit = true
 markers = [
     "integration: marca testes de integração"
 ]
+pythonpath = [
+  "."
+]
 
 # Caso queria utilizar o AMD Rocm, no fedora (meu caso), siga este manual:https://medium.com/@anvesh.jhuboo/rocm-pytorch-on-fedora-51224563e5be e ajuste a versão do rocm ao final conforme estiver disponível
 # Se você utilizar o uv run ele potencialmente substituirá sua versão do pytorch, então cuidado. Utilize este código para recuperar uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm7.1

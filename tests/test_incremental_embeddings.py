@@ -18,7 +18,6 @@ import tempfile
 from pathlib import Path
 from typing import Generator
 
-
 import pytest
 from faker import Faker
 
@@ -60,6 +59,22 @@ def calculate_file_hash(file_path: Path) -> str:
     hasher = hashlib.sha256()
     hasher.update(file_path.read_bytes())
     return hasher.hexdigest()
+
+
+def detect_incremental_changes(
+    source_files: list[Path], existing_hashes: set[str]
+) -> tuple[list[Path], set[str]]:
+    """Replicate incremental detection logic used by the RAG pipeline."""
+    files_to_embed: list[Path] = []
+    files_to_delete: set[str] = set(existing_hashes)
+
+    for file_path in source_files:
+        file_hash = calculate_file_hash(file_path)
+        if file_hash not in existing_hashes:
+            files_to_embed.append(file_path)
+        files_to_delete.discard(file_hash)
+
+    return files_to_embed, files_to_delete
 
 
 # =============================================================================
@@ -141,14 +156,9 @@ class TestRAGServiceIncrementalLogic:
 
         # Calculate current file hashes
         source_files = [file1, file2]
-        files_to_embed = []
-        file_hash_map = {}
-
-        for file_path in source_files:
-            file_hash = calculate_file_hash(file_path)
-            file_hash_map[file_hash] = file_path
-            if file_hash not in existing_hashes:
-                files_to_embed.append(file_path)
+        files_to_embed, _files_to_delete = detect_incremental_changes(
+            source_files, existing_hashes
+        )
 
         assert len(files_to_embed) == 2
         assert file1 in files_to_embed
@@ -164,38 +174,44 @@ class TestRAGServiceIncrementalLogic:
         existing_hashes = {hash1, "old_hash_2", "old_hash_3"}
 
         source_files = [file1]
-        files_to_delete = set(existing_hashes)
-
-        for file_path in source_files:
-            file_hash = calculate_file_hash(file_path)
-            files_to_delete.discard(file_hash)
+        _files_to_embed, files_to_delete = detect_incremental_changes(
+            source_files, existing_hashes
+        )
 
         # Should mark 2 files for deletion
         assert files_to_delete == {"old_hash_2", "old_hash_3"}
 
-    def test_detect_modified_files(self, temp_data_dir: Path) -> None:
+    @pytest.mark.parametrize(
+        ("original_content", "updated_content"),
+        [
+            ("Conteúdo original", "Conteúdo MODIFICADO"),
+            ("Content A", "Content B"),
+        ],
+    )
+    def test_detect_modified_files(
+        self,
+        temp_data_dir: Path,
+        original_content: str,
+        updated_content: str,
+    ) -> None:
         """Test that modified files (different hash) are detected."""
         # Create file and calculate original hash
-        file1 = create_text_file(temp_data_dir, "file1.txt", "Conteúdo original")
+        file1 = create_text_file(temp_data_dir, "file1.txt", original_content)
         original_hash = calculate_file_hash(file1)
 
         # Simulate existing hashes in ChromaDB (with original hash)
         existing_hashes = {original_hash}
 
         # Modify the file
-        file1.write_text("Conteúdo MODIFICADO")
+        file1.write_text(updated_content)
         new_hash = calculate_file_hash(file1)
 
         assert original_hash != new_hash
 
         # Now detect changes
-        files_to_embed = []
-        files_to_delete = set(existing_hashes)
-
-        file_hash = calculate_file_hash(file1)
-        if file_hash not in existing_hashes:
-            files_to_embed.append(file1)
-        files_to_delete.discard(file_hash)
+        files_to_embed, files_to_delete = detect_incremental_changes(
+            [file1], existing_hashes
+        )
 
         # Should embed modified file (new hash) and delete old hash
         assert len(files_to_embed) == 1
@@ -211,13 +227,9 @@ class TestRAGServiceIncrementalLogic:
         # Simulate: ChromaDB already has this hash
         existing_hashes = {file_hash}
 
-        files_to_embed = []
-        files_to_delete = set(existing_hashes)
-
-        current_hash = calculate_file_hash(file1)
-        if current_hash not in existing_hashes:
-            files_to_embed.append(file1)
-        files_to_delete.discard(current_hash)
+        files_to_embed, files_to_delete = detect_incremental_changes(
+            [file1], existing_hashes
+        )
 
         # Nothing to embed or delete
         assert len(files_to_embed) == 0
@@ -232,27 +244,28 @@ class TestRAGServiceIncrementalLogic:
 class TestHashCalculation:
     """Tests for file hash calculation."""
 
-    def test_calculate_file_hash_consistency(self, temp_data_dir: Path) -> None:
-        """Test that same content produces same hash."""
-        file1 = create_text_file(temp_data_dir, "file1.txt", "Mesmo conteúdo")
-        file2 = create_text_file(temp_data_dir, "file2.txt", "Mesmo conteúdo")
-
-        hash1 = calculate_file_hash(file1)
-        hash2 = calculate_file_hash(file2)
-
-        assert hash1 == hash2
-
-    def test_calculate_file_hash_changes_with_content(
-        self, temp_data_dir: Path
+    @pytest.mark.parametrize(
+        ("content_a", "content_b", "should_match"),
+        [
+            ("Mesmo conteúdo", "Mesmo conteúdo", True),
+            ("Conteúdo A", "Conteúdo B", False),
+        ],
+    )
+    def test_calculate_file_hash_comparison(
+        self,
+        temp_data_dir: Path,
+        content_a: str,
+        content_b: str,
+        should_match: bool,
     ) -> None:
-        """Test that different content produces different hash."""
-        file1 = create_text_file(temp_data_dir, "file1.txt", "Conteúdo A")
-        file2 = create_text_file(temp_data_dir, "file2.txt", "Conteúdo B")
+        """Test hash equality and inequality based on file content."""
+        file1 = create_text_file(temp_data_dir, "file1.txt", content_a)
+        file2 = create_text_file(temp_data_dir, "file2.txt", content_b)
 
         hash1 = calculate_file_hash(file1)
         hash2 = calculate_file_hash(file2)
 
-        assert hash1 != hash2
+        assert (hash1 == hash2) is should_match
 
     def test_hash_format_is_valid_sha256(self, temp_data_dir: Path) -> None:
         """Test that hash output is valid SHA256 format."""
@@ -370,14 +383,9 @@ class TestCombinedOperations:
         file3 = create_text_file(temp_data_dir, "file3.txt", "New content")
 
         source_files = [file1, file3]
-        files_to_embed = []
-        files_to_delete = set(existing_hashes)
-
-        for file_path in source_files:
-            file_hash = calculate_file_hash(file_path)
-            if file_hash not in existing_hashes:
-                files_to_embed.append(file_path)
-            files_to_delete.discard(file_hash)
+        files_to_embed, files_to_delete = detect_incremental_changes(
+            source_files, existing_hashes
+        )
 
         # file3 should be embedded, hash_of_deleted_file2 should be deleted
         assert len(files_to_embed) == 1
@@ -396,22 +404,17 @@ class TestCombinedOperations:
 
         # Modify file1
         file1.write_text("Modified 1")
-        new_hash1 = calculate_file_hash(file1)
+        calculate_file_hash(file1)
 
         # Add file3
         file3 = create_text_file(temp_data_dir, "file3.txt", "Brand new file")
-        hash3 = calculate_file_hash(file3)
+        calculate_file_hash(file3)
 
         # Process
         source_files = [file1, file3]
-        files_to_embed = []
-        files_to_delete = set(existing_hashes)
-
-        for file_path in source_files:
-            file_hash = calculate_file_hash(file_path)
-            if file_hash not in existing_hashes:
-                files_to_embed.append(file_path)
-            files_to_delete.discard(file_hash)
+        files_to_embed, files_to_delete = detect_incremental_changes(
+            source_files, existing_hashes
+        )
 
         # Both modified file1 and new file3 should be embedded
         assert len(files_to_embed) == 2
@@ -507,14 +510,9 @@ class TestRAGServiceIntegrationLogic:
         file3 = create_text_file(temp_data_dir, "file3.txt", "New content")
         source_files = [file1, file2, file3]
 
-        files_to_embed_phase2 = []
-        files_to_delete_phase2 = set(existing_hashes)
-
-        for file_path in source_files:
-            file_hash = calculate_file_hash(file_path)
-            if file_hash not in existing_hashes:
-                files_to_embed_phase2.append(file_path)
-            files_to_delete_phase2.discard(file_hash)
+        files_to_embed_phase2, files_to_delete_phase2 = detect_incremental_changes(
+            source_files, existing_hashes
+        )
 
         assert len(files_to_embed_phase2) == 1
         assert file3 in files_to_embed_phase2
@@ -530,14 +528,9 @@ class TestRAGServiceIntegrationLogic:
 
         source_files = [file1, file2, file3]
 
-        files_to_embed_phase3 = []
-        files_to_delete_phase3 = set(existing_hashes)
-
-        for file_path in source_files:
-            file_hash = calculate_file_hash(file_path)
-            if file_hash not in existing_hashes:
-                files_to_embed_phase3.append(file_path)
-            files_to_delete_phase3.discard(file_hash)
+        files_to_embed_phase3, files_to_delete_phase3 = detect_incremental_changes(
+            source_files, existing_hashes
+        )
 
         # Only modified file1 needs re-embedding
         assert len(files_to_embed_phase3) == 1
@@ -555,14 +548,9 @@ class TestRAGServiceIntegrationLogic:
 
         source_files = [file1, file3]  # file2 no longer exists
 
-        files_to_embed_phase4 = []
-        files_to_delete_phase4 = set(existing_hashes)
-
-        for file_path in source_files:
-            file_hash = calculate_file_hash(file_path)
-            if file_hash not in existing_hashes:
-                files_to_embed_phase4.append(file_path)
-            files_to_delete_phase4.discard(file_hash)
+        files_to_embed_phase4, files_to_delete_phase4 = detect_incremental_changes(
+            source_files, existing_hashes
+        )
 
         assert len(files_to_embed_phase4) == 0
         assert hash2 in files_to_delete_phase4

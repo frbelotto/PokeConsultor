@@ -11,8 +11,7 @@ Intelligent AI Consultant using **RAG (Retrieval-Augmented Generation)** to answ
 ## 🌟 Key Features
 
 - **🧠 Advanced Memory System**: Integrated with LangChain's `SummarizationMiddleware` for intelligent context management and automatic summarization of long conversations.
-- **🔍 Elite Hybrid Search**: Combines semantic (vector) search with lexical search (BM25) using **Rank Fusion (RRF)** for maximum precision.
-- **✨ Query Expansion**: Leverages LLMs to generate search variations, increasing retrieval coverage.
+- **🔍 Hybrid Search**: Combines semantic (vector) search with lexical search using **Rank Fusion (RRF)**.
 - **⚡ Incremental Embeddings**: Intelligent system that detects new, modified, or deleted files, processing only what's necessary.
 - **📚 Multi-format Support**: Automatic loading of PDF, CSV, TXT, Markdown, and more via Factory Pattern.
 - **🖥️ Dual Interfaces**: Choose between a powerful interactive CLI or a modern graphical interface built with **PySide6**.
@@ -53,12 +52,10 @@ graph TD
     A[User] -->|Query| B[AIAgent]
     B -->|Check Memory| C(Summarization Middleware)
     B -->|Context Request| D[RAG Service]
-    D -->|Query Expansion| E[Expansion LLM]
-    E -->|Multi-Queries| F[Hybrid Executor]
+   D -->|Query| F[Hybrid Executor]
     F -->|Vector Search| G[(ChromaDB)]
-    F -->|Lexical Search| H[BM25 Index]
-    F -->|Rerank| I[Cross-Encoder]
-    I -->|Best Context| B
+   F -->|Lexical Search| H[Lexical Index]
+   F -->|Best Context| B
 ```
 
 ### Key Components
@@ -66,10 +63,25 @@ graph TD
 | Module | Responsibility |
 | :--- | :--- |
 | **`agents/`** | Conversation orchestration and LangChain/LangGraph integration. |
-| **`services/rag/`** | Core retrieval engine, including hybrid search and reranking. |
+| **`services/rag/`** | Core retrieval engine, including hybrid search and RRF fusion. |
 | **`services/memory/`** | Persistence and history compression (summarization) management. |
 | **`services/data_loaders/`** | Extensible system for processing various file types. |
 | **`ui/`** | CLI and GUI (PySide6) implementations. |
+
+### Tool Calling Flow (LangChain)
+
+The retrieval capability is exposed as a LangChain tool named `retrieve_context`.
+This keeps retrieval decoupled from response generation and allows the LLM to call
+the tool multiple times whenever needed.
+
+High-level flow:
+
+1. User sends a question.
+2. The agent decides if retrieval is necessary.
+3. The agent calls `retrieve_context(query)`.
+4. The tool runs hybrid retrieval (lexical + vector + RRF).
+5. The tool returns structured output (`context`, `sources`, `retrieved_docs`).
+6. The model synthesizes the final answer using only retrieved context.
 
 ---
 

@@ -15,5 +15,3 @@ if settings.SUMMARIZATION_ENABLED:
             keep=("messages", settings.SUMMARIZATION_KEEP_MESSAGES),
         )
     )
-
-

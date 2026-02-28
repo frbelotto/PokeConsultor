@@ -24,19 +24,31 @@ def reset_logger_level() -> None:
 class TestLogLevel:
     """Test cases for LogLevel enumeration."""
 
-    def test_get_log_level_valid_levels(self) -> None:
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            ("DEBUG", logging.DEBUG),
+            ("INFO", logging.INFO),
+            ("WARNING", logging.WARNING),
+            ("ERROR", logging.ERROR),
+            ("CRITICAL", logging.CRITICAL),
+        ],
+    )
+    def test_get_log_level_valid_levels(self, name: str, expected: int) -> None:
         """Verify that valid log level strings are converted correctly."""
-        assert LogLevel.get_log_level("DEBUG") == logging.DEBUG
-        assert LogLevel.get_log_level("INFO") == logging.INFO
-        assert LogLevel.get_log_level("WARNING") == logging.WARNING
-        assert LogLevel.get_log_level("ERROR") == logging.ERROR
-        assert LogLevel.get_log_level("CRITICAL") == logging.CRITICAL
+        assert LogLevel.get_log_level(name) == expected
 
-    def test_get_log_level_case_insensitive(self) -> None:
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            ("debug", logging.DEBUG),
+            ("DeBuG", logging.DEBUG),
+            ("info", logging.INFO),
+        ],
+    )
+    def test_get_log_level_case_insensitive(self, name: str, expected: int) -> None:
         """Verify that log level strings are case-insensitive."""
-        assert LogLevel.get_log_level("debug") == logging.DEBUG
-        assert LogLevel.get_log_level("DeBuG") == logging.DEBUG
-        assert LogLevel.get_log_level("info") == logging.INFO
+        assert LogLevel.get_log_level(name) == expected
 
     def test_get_log_level_invalid_level(self) -> None:
         """Verify that invalid log level raises ValueError."""

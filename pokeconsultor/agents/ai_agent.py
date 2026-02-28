@@ -1,22 +1,19 @@
-from typing import Any
+import threading
+from typing import Any, cast
+from uuid import uuid4
 
-from langchain.chat_models import init_chat_model
 from langchain.agents import create_agent
+from langchain.chat_models import init_chat_model
+from langchain.messages import HumanMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
-
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
+from pokeconsultor.config import settings
 from pokeconsultor.llm.base import LLMProfile
-
-
-from langchain.messages import HumanMessage, AIMessage, ToolMessage
-from langchain_core.messages import BaseMessage
-from langchain_core.output_parsers import StrOutputParser
-from langchain.messages import SystemMessage
 from pokeconsultor.services.logger import logger
 from pokeconsultor.services.memory import checkpointer, middleware
-from langgraph.checkpoint.memory import InMemorySaver
-import threading
 
 
 class AIAgent(BaseModel):
@@ -25,6 +22,7 @@ class AIAgent(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
     systemprompt: SystemMessage
     llm: LLMProfile
+    tools: list[Any] = Field(default_factory=list)
     _threadid: int = PrivateAttr(default_factory=threading.get_ident)
     _memory: InMemorySaver = checkpointer
     _agent: CompiledStateGraph = PrivateAttr()
@@ -32,74 +30,130 @@ class AIAgent(BaseModel):
     def model_post_init(self, _context: Any) -> None:
         """Instantiate the chat model passing the provider API key when available."""
 
-        api_key = self.llm.api_key.get_secret_value()
-
         llm_instance = init_chat_model(
             model=self.llm.model,
             model_provider=self.llm.provider,
             temperature=self.llm.temperature,
             max_tokens=self.llm.max_tokens,
-            api_key=api_key,
+            api_key=self.llm.api_key.get_secret_value(),
         )
 
         self._agent = create_agent(
-            llm_instance, system_prompt=self.systemprompt, 
-            checkpointer=self._memory, 
-            middleware=middleware
+            llm_instance,
+            system_prompt=self.systemprompt,
+            checkpointer=self._memory,
+            middleware=middleware,
+            tools=self.tools,
         )
-
 
     @property
     def agent(self) -> CompiledStateGraph:
         """Get the instantiated chat model."""
         return self._agent
 
-    def respond(self, prompt: HumanMessage, ragcontext: HumanMessage) -> str:
-        """Send prompt and optional RAG context to the agent and return the parsed response as plain text.
+    def respond(self, prompt: HumanMessage | str) -> str:
+        """Send a user prompt to the agent and return plain text response."""
 
-        The agent expects a list of message dicts with 'role' and 'content'. We build that
-        list from conversation history, optional RAG context, and the current user prompt.
-        """
-
-        messages = []
-
-        if ragcontext and getattr(ragcontext, "content", ""):
-            messages.append({"role": "system", "content": ragcontext.content})
-
-        messages.append({"role": "user", "content": prompt.content})
+        user_text = prompt.content if isinstance(prompt, HumanMessage) else str(prompt)
+        messages = [{"role": "user", "content": user_text}]
+        turn_id = uuid4().hex
         logger.debug(f"Agent messages: {messages}")
+        logger.debug(
+            "Agent invocation limits | recursion_limit=%s | max_tool_calls=%s | turn_id=%s",
+            settings.AGENT_RECURSION_LIMIT,
+            settings.AGENT_MAX_TOOL_CALLS_PER_TURN,
+            turn_id,
+        )
 
-        parser = StrOutputParser()
+        invoke_config: RunnableConfig = cast(
+            RunnableConfig,
+            {
+                "recursion_limit": settings.AGENT_RECURSION_LIMIT,
+                "configurable": {
+                    "thread_id": str(self._threadid),
+                    "turn_id": turn_id,
+                    "max_tool_calls": settings.AGENT_MAX_TOOL_CALLS_PER_TURN,
+                },
+            },
+        )
 
         raw = self._agent.invoke(
-            {"messages": messages}, {"configurable": {"thread_id": self._threadid}}
+            {"messages": messages},
+            invoke_config,
         )
-        parsed = parser.parse(raw)
 
-        def _normalize_parsed(obj: Any) -> str:
-            """Normalize parser/agent outputs to plain string."""
-            if isinstance(obj, str):
-                return obj
-            if isinstance(obj, dict):
-                for k in ("text", "output", "content"):
-                    v = obj.get(k)
-                    if v:
-                        return str(v)
-                msgs = obj.get("messages")
-                if isinstance(msgs, list) and msgs:
-                    last = msgs[-1]
-                    if isinstance(last, dict):
-                        return str(last.get("content") or last.get("text") or last)
-                    return str(getattr(last, "content", last))
-                return str(obj)
-            return str(obj)
+        return self._normalize_output(raw)
 
-        final_text = _normalize_parsed(parsed)
+    def get_state_history(self) -> list[Any]:
+        """Return persisted graph state history for current thread."""
+        history = self._agent.get_state_history(
+            {"configurable": {"thread_id": str(self._threadid)}}
+        )
+        return list(history)
 
-        ai_msg = AIMessage(content=final_text)
-        # try:
-        #     self.memory.add_assistant_message([ai_msg])
-        # except Exception:
-        #     pass
+    def clear_thread_memory(self) -> None:
+        """Clear persisted graph state for the current conversation thread."""
+        self._memory.delete_thread(str(self._threadid))
 
-        return final_text
+    def get_latest_interaction_tool_usage(self) -> dict[str, Any]:
+        """Return tool usage summary for the latest user interaction."""
+        history = self.get_state_history()
+        if not history:
+            return {"used": False, "tool_names": [], "tool_calls": 0}
+
+        latest_state = history[0]
+        values = getattr(latest_state, "values", {})
+        messages = values.get("messages", []) if isinstance(values, dict) else []
+        if not isinstance(messages, list) or not messages:
+            return {"used": False, "tool_names": [], "tool_calls": 0}
+
+        tool_names: list[str] = []
+        tool_calls = 0
+
+        for message in reversed(messages):
+            if isinstance(message, HumanMessage):
+                break
+
+            message_tool_name = getattr(message, "name", None)
+            if message_tool_name and message_tool_name not in tool_names:
+                tool_names.append(message_tool_name)
+                tool_calls += 1
+
+            llm_tool_calls = getattr(message, "tool_calls", None)
+            if isinstance(llm_tool_calls, list) and llm_tool_calls:
+                for call in llm_tool_calls:
+                    if not isinstance(call, dict):
+                        continue
+                    name = call.get("name")
+                    if name and name not in tool_names:
+                        tool_names.append(name)
+                    tool_calls += 1
+
+        return {
+            "used": bool(tool_names),
+            "tool_names": tool_names,
+            "tool_calls": tool_calls,
+        }
+
+    @staticmethod
+    def _normalize_output(raw: Any) -> str:
+        """Normalize graph output structures into final assistant text."""
+        if isinstance(raw, str):
+            return raw
+
+        if isinstance(raw, dict):
+            messages = raw.get("messages")
+            if isinstance(messages, list) and messages:
+                last = messages[-1]
+                if isinstance(last, dict):
+                    return str(last.get("content", "")).strip()
+                content = getattr(last, "content", None)
+                if content is not None:
+                    return str(content).strip()
+
+            for key in ("output", "content", "text"):
+                value = raw.get(key)
+                if value:
+                    return str(value).strip()
+
+        return str(raw).strip()

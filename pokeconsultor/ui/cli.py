@@ -1,28 +1,28 @@
 """CLI UI for PokeConsultor."""
 
 import sys
+from pprint import PrettyPrinter
+from typing import Any
 
 from langchain.messages import HumanMessage
-from langchain_core.prompts import ChatPromptTemplate
+
 from pokeconsultor.services.logger import logger
 
 
 class PokeConsultorCLI:
     """Terminal-based interface for PokeConsultor."""
 
-    def __init__(self, agent, rag_service):
+    def __init__(self, agent: Any) -> None:
         self.agent = agent
-        self.rag_service = rag_service
         self.debug_mode = False
-        self.use_rag = True
 
-    def print_header(self):
+    def print_header(self) -> None:
         """Print the application header."""
         print("\033[1;36m" + "=" * 60)
         print("⚙️  INICIALIZANDO POKECONSULTOR")
         print("=" * 60 + "\033[0m")
 
-    def print_ready(self):
+    def print_ready(self) -> None:
         """Print system ready message."""
         print("\n\033[1;32m✅ Sistema pronto para consultas!\033[0m")
         print("\n" + "=" * 60)
@@ -33,12 +33,11 @@ class PokeConsultorCLI:
         print("   • 'sair' ou 'exit' para encerrar")
         print("   • 'limpar' ou 'clear' para limpar o console")
         print("   • 'debug' para ativar/desativar modo debug")
-        print("   • 'rag' para ativar/desativar uso de contexto RAG")
         print("   • 'memória' ou 'memory' para ver histórico de conversas")
         print("   • 'limpar_memória' ou 'clear_memory' para apagar histórico")
         print("   • Ctrl+C para interromper")
 
-    def run(self):
+    def run(self) -> None:
         """Main execution loop for CLI."""
         self.print_ready()
 
@@ -67,37 +66,23 @@ class PokeConsultorCLI:
                     print(f"\n⚙️ Modo debug {status}")
                     continue
 
-                # Check for RAG toggle
-                if query.lower() == "rag":
-                    self.use_rag = not self.use_rag
-                    status = "ATIVADO" if self.use_rag else "DESATIVADO"
-                    print(f"\n📚 Uso de RAG {status}")
-                    continue
-
                 # Memory commands
                 if query.lower() in ["memória", "memory"]:
-                    # history = self.agent.memory.get_history()
-                    history = self.agent._agent.get_state_history(
-                        {"configurable": {"thread_id": str(self.agent._threadid)}}
-                    )
+                    history = self.agent.get_state_history()
                     if not history:
                         print("\n🧠 Memória vazia.")
                     else:
                         print("\n" + "=" * 80)
-                        print(f"📋 HISTÓRICO COMPLETO DE CONVERSA ")
+                        print("📋 HISTÓRICO COMPLETO DE CONVERSA ")
                         print("=" * 80)
 
-                        for message in history:
-                            print(message)
+                        self._print_memory_history(history)
 
                         print("\n" + "=" * 80)
                     continue
 
                 if query.lower() in ["limpar_memória", "clear_memory"]:
-                    # self.agent.memory.clear()
-                    self.agent._agent.checkpointer.delete_thread(
-                        str(self.agent._threadid)
-                    )
+                    self.agent.clear_thread_memory()
                     print("\033[2J\033[H")  # Clear terminal
                     print("\n🧠 Memória e terminal limpos!")
                     continue
@@ -108,44 +93,11 @@ class PokeConsultorCLI:
 
                 print("\n[AI] 🤖 Gerando resposta...")
 
-                # RAG Process
-                rag_results = []
-                retrieved_context = ""
-                used_indices = []
-
-                if self.use_rag:
-                    # Retrieve documents
-                    rag_results = self.rag_service.retrieve(query)
-
-                    if rag_results:
-                        print(
-                            f"✅ {len(rag_results)} documentos recuperados de fontes locais."
-                        )
-                        # Format context for prompt
-                        retrieved_context = self.rag_service.format_results(rag_results)
-
-                        # Identify which results are in the context (more robustly)
-                        cleaned_context = " ".join(retrieved_context.split())
-                        for i, doc in enumerate(rag_results, 1):
-                            # Use first 100 chars, normalized whitespace
-                            check_text = " ".join(doc.page_content[:100].split())
-                            if check_text and check_text in cleaned_context:
-                                used_indices.append(i)
-
                 # Build a single HumanMessage for the agent (agent.respond expects a HumanMessage)
                 request = HumanMessage(content=query)
                 logger.info(f"User prompt: {request}")
 
-                ragcontext = HumanMessage(content="")
-                if self.use_rag:
-                    ragcontext = HumanMessage(
-                        content="Para responder a questão, saiba que o contexto relevante é: "
-                        + retrieved_context
-                    )
-
-                response_text = self.agent.respond(
-                    prompt=request, ragcontext=ragcontext
-                )
+                response_text = self.agent.respond(prompt=request)
 
                 # Print response
                 print("\n" + "=" * 60)
@@ -155,7 +107,7 @@ class PokeConsultorCLI:
 
                 # Debug info
                 if self.debug_mode:
-                    self._print_debug_info(rag_results, retrieved_context, used_indices)
+                    self._print_debug_info()
 
                 print("-" * 60)
                 print("-" * 60)
@@ -164,49 +116,87 @@ class PokeConsultorCLI:
                 print("\n⚠️ Operação interrompida pelo usuário.")
                 continue
 
-    def _print_debug_info(self, rag_results, retrieved_context, used_indices):
-        """Print debug information about RAG process."""
+    def _print_debug_info(self) -> None:
+        """Print debug information from graph state history."""
+        history = self.agent.get_state_history()
+        tool_usage = self.agent.get_latest_interaction_tool_usage()
+
         print("\n" + "🔍" * 30)
-        print("[RAG] 📚 PIPELINE DE RECUPERAÇÃO E CONTEXTO")
+        print("[DEBUG] 📚 ESTADO RECENTE DO AGENTE")
         print("🔍" * 30)
 
-        # Stage 1: All retrieved results
-        print("\n[STAGE 1] 📋 DOCUMENTOS RECUPERADOS (retrieve):")
-        print("=" * 80)
-        print(f"Total recuperado: {len(rag_results)} documentos\n")
-        for i, doc in enumerate(rag_results, 1):
-            content = doc.page_content
-            doc_preview = content[:160] + "..." if len(content) > 160 else content
-            doc_chars = len(content)
+        used = "SIM" if tool_usage["used"] else "NÃO"
+        names = ", ".join(tool_usage["tool_names"]) if tool_usage["tool_names"] else "-"
+        print(f"Tool usada na última interação: {used}")
+        print(f"Tools: {names}")
 
-            filename = doc.metadata.get("file_path", "unknown").split("/")[-1]
-            page = doc.metadata.get("page_number")
-            row = doc.metadata.get("row_number")
+        if not history:
+            print("Nenhum histórico disponível.")
+            return
 
-            ref = filename
-            if page:
-                ref += f" (pág. {page})"
-            elif row:
-                ref += f" (linha {row})"
+        print(f"Total de estados: {len(history)}")
+        print("-" * 80)
+        for state in history[:3]:
+            print(state)
 
-            in_context_flag = " ✓ ENVIADO" if i in used_indices else ""
-            print(
-                f"  [{i:2d}] Fonte: {ref:30s} | {doc_chars:5d} chars{in_context_flag}"
-            )
-            print(f"       └─ {doc_preview}\n")
+    def _print_memory_history(self, history: list[Any]) -> None:
+        """Pretty print conversation history snapshots with full message content."""
+        printer = PrettyPrinter(width=140, compact=False, sort_dicts=False)
 
-        # Stage 2: What was sent to LLM
-        print("\n[STAGE 2] 📤 CONTEXTO ENVIADO À LLM (format_results):")
-        print("=" * 80)
-        if retrieved_context:
-            sent_count = len(used_indices)
-            sent_chars = len(retrieved_context)
-            approx_tokens = self.rag_service.count_tokens(retrieved_context)
-            print(
-                f"Total enviado: {sent_count} de {len(rag_results)} documentos "
-                f"| {sent_chars} chars | ~{approx_tokens} tokens"
-            )
-            print("-" * 80)
-            print(retrieved_context)
-        else:
-            print("Nenhum contexto enviado.")
+        for index, snapshot in enumerate(history, 1):
+            values = getattr(snapshot, "values", {})
+            config = getattr(snapshot, "config", {})
+            metadata = getattr(snapshot, "metadata", {})
+            created_at = getattr(snapshot, "created_at", None)
+
+            messages = values.get("messages", []) if isinstance(values, dict) else []
+            formatted_messages = [
+                self._format_message_for_display(message) for message in messages
+            ]
+
+            state_payload = {
+                "state_index": index,
+                "created_at": created_at,
+                "metadata": metadata,
+                "configurable": config.get("configurable", {})
+                if isinstance(config, dict)
+                else {},
+                "messages": formatted_messages,
+            }
+
+            print("\n" + "-" * 80)
+            printer.pprint(state_payload)
+
+    @staticmethod
+    def _format_message_for_display(message: Any) -> dict[str, Any]:
+        """Convert LangChain message objects into readable dictionaries."""
+        payload: dict[str, Any] = {
+            "type": type(message).__name__,
+            "content": getattr(message, "content", ""),
+        }
+
+        name = getattr(message, "name", None)
+        if name:
+            payload["name"] = name
+
+        tool_call_id = getattr(message, "tool_call_id", None)
+        if tool_call_id:
+            payload["tool_call_id"] = tool_call_id
+
+        tool_calls = getattr(message, "tool_calls", None)
+        if tool_calls:
+            payload["tool_calls"] = tool_calls
+
+        additional_kwargs = getattr(message, "additional_kwargs", None)
+        if additional_kwargs:
+            payload["additional_kwargs"] = additional_kwargs
+
+        response_metadata = getattr(message, "response_metadata", None)
+        if response_metadata:
+            payload["response_metadata"] = response_metadata
+
+        usage_metadata = getattr(message, "usage_metadata", None)
+        if usage_metadata:
+            payload["usage_metadata"] = usage_metadata
+
+        return payload

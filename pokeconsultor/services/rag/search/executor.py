@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, List, Tuple
+from typing import List, Tuple
+
+from langchain_core.callbacks import CallbackManagerForRetrieverRun
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
-
-import numpy as np
 from pydantic import ConfigDict, Field
 
 from pokeconsultor.services.logger import logger
@@ -52,7 +52,7 @@ def rrf_fuse(
 
 
 class HybridExecutor(BaseRetriever):
-    """Orchestrates lexical + vector retrieval, RRF fusion, and rerank."""
+    """Orchestrates lexical + vector retrieval with RRF fusion."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
@@ -66,48 +66,26 @@ class HybridExecutor(BaseRetriever):
     lexical_k: int | None = Field(default=None, description="Override K for lexical")
     vector_k: int | None = Field(default=None, description="Override K for vector")
     rrf_k: int = Field(default=60, gt=0, description="RRF constant")
-    rerank_method: str = Field(
-        default="cross_encoder", description="'none' | 'cosine' | 'cross_encoder'"
-    )
-    rerank_k: int | None = Field(
-        default=10, ge=0, description="Keep top-K after rerank"
-    )
-
-    _cross_encoder: Any | None = None
-
-    def _ensure_cross_encoder(self) -> None:
-        if self._cross_encoder is not None:
-            return
-        if self.rerank_method != "cross_encoder":
-            return
-        try:
-            from langchain_community.cross_encoders.huggingface import (
-                HuggingFaceCrossEncoder,
-            )
-
-            self._cross_encoder = HuggingFaceCrossEncoder(
-                model_name="BAAI/bge-reranker-base",
-                model_kwargs={"device": "cpu"},
-            )
-            logger.debug("Cross-encoder reranker initialized (BAAI/bge-reranker-base)")
-        except Exception as exc:
-            raise RuntimeError(
-                "Cross-encoder reranker requested but unavailable. "
-                "Install 'sentence-transformers' or configure rerank_method='cosine' or 'none'."
-            ) from exc
 
     def warmup(self) -> None:
-        """Pre-initialize heavy models."""
-        self._ensure_cross_encoder()
+        """No-op warmup kept for interface stability."""
+        logger.debug("HybridExecutor warmup completed (no reranker to pre-load)")
 
-    def _get_relevant_documents(self, query: str) -> List[Document]:
-        """Run hybrid retrieval for a single query."""
+    def _get_relevant_documents(
+        self,
+        query: str,
+        *,
+        run_manager: CallbackManagerForRetrieverRun,
+    ) -> List[Document]:
+        """Run hybrid retrieval for a single query.
+
+        The ``run_manager`` callback manager is accepted to comply with the
+        ``BaseRetriever`` interface but is not used in this implementation.
+        """
         return self._get_relevant_documents_multi([query])
 
     def _get_relevant_documents_multi(self, queries: list[str]) -> List[Document]:
         """Run hybrid retrieval for multiple queries, fusing results."""
-        self._ensure_cross_encoder()
-
         k_lex = self.lexical_k or self.retrieve_k
         k_vec = self.vector_k or self.retrieve_k
 
@@ -136,58 +114,7 @@ class HybridExecutor(BaseRetriever):
         fused = rrf_fuse(all_vec_pairs, lexical_pairs=all_lex_pairs, k=self.rrf_k)
         if not fused:
             return []
-
-        if self.rerank_k and self.rerank_k > 0:
-            # Rerank against the ORIGINAL query (first in the list)
-            fused = self._rerank_results(queries[0], fused, self.rerank_k)
-
         return [doc for doc, score in fused]
-
-    def retrieve(self, query: str) -> list[tuple[str, float]]:
-        """Deprecated: use invoke() or _get_relevant_documents.
-
-        Maintaining for backward compatibility during transition.
-        """
-        docs = self.invoke(query)
-        return [(doc.page_content, 1.0) for doc in docs]
-
-    def _rerank_results(
-        self, query: str, results: list[tuple[Document, float]], rerank_k: int
-    ) -> list[tuple[Document, float]]:
-        if self.rerank_method == "none":
-            return results[:rerank_k]
-
-        if self.rerank_method == "cross_encoder":
-            if self._cross_encoder is None:
-                raise RuntimeError(
-                    "Cross-encoder reranker not initialized; check dependencies."
-                )
-            pairs: List[Tuple[str, str]] = [
-                (query, doc.page_content) for doc, _ in results
-            ]
-            scores = list(self._cross_encoder.score(pairs))
-            order = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
-            top = order[:rerank_k]
-            return [(results[i][0], float(scores[i])) for i in top]
-
-        if self.rerank_method == "cosine":
-            embeddings = self.vector_searcher.embedding_service.embeddings
-            q = np.array(embeddings.embed_query(query), dtype=float)
-            docs = np.array(
-                embeddings.embed_documents([doc.page_content for doc, _ in results]),
-                dtype=float,
-            )
-            q_norm = np.linalg.norm(q)
-            d_norm = np.linalg.norm(docs, axis=1)
-            denom = np.clip(q_norm * d_norm, a_min=1e-12, a_max=None)
-            scores = (docs @ q) / denom
-            order = np.argsort(scores)[::-1][:rerank_k]
-            return [
-                (results[int(i)][0], float(scores[int(i)]))
-                for i in order  # type: ignore[arg-type]
-            ]
-
-        return results[:rerank_k]
 
     def format_context(
         self,
@@ -195,12 +122,13 @@ class HybridExecutor(BaseRetriever):
         max_tokens: int | None = None,
         compact: bool = True,
     ) -> str:
-        # Handle both list of Documents and list of (Doc, score)
-        if results and isinstance(results[0], tuple):
-            formatted_results = results  # format_context handles tuples
-        else:
-            # format_context expects List[Tuple[Document | str, float]]
-            formatted_results = [(doc, 1.0) for doc in results]
+        formatted_results: list[tuple[Document | str, float]] = []
+        for item in results:
+            if isinstance(item, tuple):
+                doc, score = item
+                formatted_results.append((doc, float(score)))
+            else:
+                formatted_results.append((item, 1.0))
 
         return format_context(
             formatted_results, self.tokenizer_service, max_tokens, compact
