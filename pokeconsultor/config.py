@@ -141,13 +141,21 @@ class Settings(BaseSettings):
 
     def __new__(cls, *args: Any, **kwargs: Any) -> Settings:
         """Ensure a single instance is created for the lifetime of the process."""
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
+        instance = getattr(cls, "_instance", None)
+        if instance is None:
+            lock = getattr(cls, "_lock", None)
+            if lock is None:
+                lock = Lock()
+                setattr(cls, "_lock", lock)
+
+            with lock:
+                instance = getattr(cls, "_instance", None)
+                if instance is None:
                     instance = super().__new__(cls)
-                    cls._instance = instance
-                    cls._initialized = False
-        return cls._instance  # type: ignore[return-value]
+                    setattr(cls, "_instance", instance)
+                    setattr(cls, "_initialized", False)
+
+        return instance
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Initialize settings only once to avoid reloading environment data."""
@@ -160,6 +168,12 @@ class Settings(BaseSettings):
             super().__init__(*args, **kwargs)
             self.__class__._initialized = True
 
+
+# Re-attach singleton controls explicitly after Pydantic class construction.
+# This avoids edge cases where private-like class vars may be transformed.
+Settings._instance = None
+Settings._initialized = False
+Settings._lock = Lock()
 
 # Global singleton instance
 settings: Settings = Settings()
