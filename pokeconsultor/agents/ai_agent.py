@@ -1,6 +1,5 @@
 import threading
 from typing import Any, cast
-from uuid import uuid4
 
 from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
@@ -56,13 +55,10 @@ class AIAgent(BaseModel):
 
         user_text = prompt.content if isinstance(prompt, HumanMessage) else str(prompt)
         messages = [{"role": "user", "content": user_text}]
-        turn_id = uuid4().hex
         logger.debug(f"Agent messages: {messages}")
         logger.debug(
-            "Agent invocation limits | recursion_limit=%s | max_tool_calls=%s | turn_id=%s",
+            "Agent invocation limits | recursion_limit=%s",
             settings.AGENT_RECURSION_LIMIT,
-            settings.AGENT_MAX_TOOL_CALLS_PER_TURN,
-            turn_id,
         )
 
         invoke_config: RunnableConfig = cast(
@@ -71,8 +67,6 @@ class AIAgent(BaseModel):
                 "recursion_limit": settings.AGENT_RECURSION_LIMIT,
                 "configurable": {
                     "thread_id": str(self._threadid),
-                    "turn_id": turn_id,
-                    "max_tool_calls": settings.AGENT_MAX_TOOL_CALLS_PER_TURN,
                 },
             },
         )

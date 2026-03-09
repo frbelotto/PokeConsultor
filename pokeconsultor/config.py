@@ -109,11 +109,6 @@ class Settings(BaseSettings):
         gt=0,
         description="Maximum number of graph steps allowed per agent interaction",
     )
-    AGENT_MAX_TOOL_CALLS_PER_TURN: int = Field(
-        default=3,
-        gt=0,
-        description="Maximum number of tool calls allowed in a single interaction",
-    )
 
     # Summarization Configuration
     # ==============================================================#
