@@ -15,6 +15,10 @@ from pokeconsultor.services.logger import logger
 from pokeconsultor.services.memory import checkpointer, middleware
 
 
+_BASE_RECURSION_LIMIT = 20
+_PER_MIDDLEWARE_RECURSION_COST = 4
+
+
 class AIAgent(BaseModel):
     """Thin wrapper that instantiates a LangChain chat model with memory."""
 
@@ -56,15 +60,23 @@ class AIAgent(BaseModel):
         user_text = prompt.content if isinstance(prompt, HumanMessage) else str(prompt)
         messages = [{"role": "user", "content": user_text}]
         logger.debug(f"Agent messages: {messages}")
+
+        # Each middleware adds graph steps around the model/tool execution cycle.
+        # Keep a minimum safe recursion budget to avoid premature GraphRecursionError
+        # when multiple middlewares are enabled simultaneously.
+        effective_recursion_limit = _BASE_RECURSION_LIMIT + (
+            len(middleware) * _PER_MIDDLEWARE_RECURSION_COST
+        )
+
         logger.debug(
             "Agent invocation limits | recursion_limit=%s",
-            settings.AGENT_RECURSION_LIMIT,
+            effective_recursion_limit,
         )
 
         invoke_config: RunnableConfig = cast(
             RunnableConfig,
             {
-                "recursion_limit": settings.AGENT_RECURSION_LIMIT,
+                "recursion_limit": effective_recursion_limit,
                 "configurable": {
                     "thread_id": str(self._threadid),
                 },

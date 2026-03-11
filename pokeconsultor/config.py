@@ -105,12 +105,6 @@ class Settings(BaseSettings):
         description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
     )
 
-    AGENT_RECURSION_LIMIT: int = Field(
-        default=12,
-        gt=0,
-        description="Maximum number of graph steps allowed per agent interaction",
-    )
-
     # Summarization Configuration
     # ==============================================================#
     SUMMARIZATION_ENABLED: bool = Field(
@@ -173,7 +167,7 @@ class Settings(BaseSettings):
 
         env_map: dict[str, SecretStr | None] = {
             "GROQ_API_KEY": self.GROQ_API_KEY,
-            "HUGGINGFACE_HUB_TOKEN": self.HUGGINGFACE_HUB_TOKEN,
+            "HF_TOKEN": self.HUGGINGFACE_HUB_TOKEN,
         }
 
         for env_name, secret_value in env_map.items():

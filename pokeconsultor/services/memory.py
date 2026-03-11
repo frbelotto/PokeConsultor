@@ -33,7 +33,7 @@ middleware: list[AgentMiddleware[Any, Any]] = [
         "database_url",
         detector=(
             r"(?:postgres|mysql|mongodb|redis)://"
-            r"(?:[^\s:@/]+(?::[^\s@/]+)?@)?"
+            r"(?:[^\s@/]*:[^\s@/]+@|[^\s:@/]+(?::[^\s@/]+)?@)?"
             r"[A-Za-z0-9.\-]+"
             r"(?::\d+)?"
             r"(?:/[A-Za-z0-9_\-./]+)?"
