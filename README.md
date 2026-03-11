@@ -11,6 +11,7 @@ Intelligent AI Consultant using **RAG (Retrieval-Augmented Generation)** to answ
 ## 🌟 Key Features
 
 - **🧠 Advanced Memory System**: Integrated with LangChain's `SummarizationMiddleware` for intelligent context management and automatic summarization of long conversations.
+- **🔐 PII Protection Middleware**: Built-in `PIIMiddleware` stack (email, credit card, IP, API key, bearer token, database URL) with automatic redaction for inputs and tool results.
 - **🔍 Hybrid Search**: Combines semantic (vector) search with lexical search using **Rank Fusion (RRF)**.
 - **⚡ Incremental Embeddings**: Intelligent system that detects new, modified, or deleted files, processing only what's necessary.
 - **📚 Multi-format Support**: Automatic loading of PDF, CSV, TXT, Markdown, and more via Factory Pattern.
@@ -41,6 +42,20 @@ Intelligent AI Consultant using **RAG (Retrieval-Augmented Generation)** to answ
 3. **Configure Environment Variables**
    Create a `.env` file based on `.env.example`:
 
+   ```bash
+   cp .env.example .env
+   ```
+
+   Then edit at least:
+   - `GROQ_API_KEY`
+   - `DATA_PATH` (default: `data/`)
+   - `POKEAPI_MCP_SERVER_URL` (use a URL string; if MCP is disabled, keep any valid placeholder URL)
+
+4. **Run the application**
+   ```bash
+   uv run main.py
+   ```
+
 ---
 
 ## 🏗️ System Architecture
@@ -64,7 +79,7 @@ graph TD
 | :--- | :--- |
 | **`agents/`** | Conversation orchestration and LangChain/LangGraph integration. |
 | **`services/rag/`** | Core retrieval engine, including hybrid search and RRF fusion. |
-| **`services/memory/`** | Persistence and history compression (summarization) management. |
+| **`services/memory.py`** | Checkpointing + middleware stack (PII redaction and optional summarization). |
 | **`services/data_loaders/`** | Extensible system for processing various file types. |
 | **`ui/`** | CLI and GUI (PySide6) implementations. |
 
@@ -89,12 +104,12 @@ High-level flow:
 
 ### CLI Mode (Default)
 ```bash
-uv run python main.py
+uv run main.py
 ```
 
 ### GUI Mode (Experimental)
 ```bash
-uv run python main.py --gui
+uv run main.py --gui
 ```
 
 ### CLI Commands
@@ -107,11 +122,55 @@ uv run python main.py --gui
 
 ## 🛠️ Technical Configurations
 
+### Environment Variables (practical reference)
+
+| Variable | Required | Notes |
+| :--- | :---: | :--- |
+| `GROQ_API_KEY` | Yes (for Groq models) | LLM provider key |
+| `HF_TOKEN` | Optional | Enables authenticated Hugging Face downloads |
+| `LLM_DEFAULT_*` | Yes | Default profile used by the agent |
+| `LLM_PROFILE_EXECUTOR_*` | Yes | Executor profile |
+| `LLM_PROFILE_SUPERVISOR_*` | Yes | Supervisor profile |
+| `DATA_PATH` | Yes | Folder containing RAG source files |
+| `CACHE_DIR` | Optional | Cache base path |
+| `POKEAPI_MCP_ENABLED` | Optional | Enables/disables MCP usage |
+| `POKEAPI_MCP_SERVER_URL` | Yes | Must be a URL string |
+| `SUMMARIZATION_*` | Optional | Controls memory summarization |
+
+> Note: `AGENT_RECURSION_LIMIT` is **not** an environment variable anymore.
+> The recursion budget is computed internally by the agent based on middleware stack size.
+
 ### Hybrid Search Weights
 The system uses Rank Reciprocal Fusion (RRF) to combine results. You can adjust search sensitivity within the search services if needed.
 
 ### Context Management
 `RAGService` automatically calculates token limits based on the configured model (e.g., Llama-3.1, Mixtral), ensuring the final prompt never exceeds the LLM's context window.
+
+### Agent Recursion Budget
+To avoid `GraphRecursionError` with multiple middlewares, the agent computes a safe budget internally:
+
+$$
+   ext{effective\_recursion\_limit} = 20 + 4 \times \text{number\_of\_middlewares}
+$$
+
+This keeps runtime stable without extra tuning in `.env`.
+
+---
+
+## 🧯 Troubleshooting
+
+### `GraphRecursionError: Recursion limit ... reached`
+
+If this happens:
+
+1. Ensure you are running the latest local code.
+2. Restart the process (CLI/GUI) after updates.
+3. Confirm your `.env` does **not** rely on legacy `AGENT_RECURSION_LIMIT` behavior.
+4. Keep middleware stack changes synchronized with the codebase.
+
+### Hugging Face warning about unauthenticated requests
+
+Set `HF_TOKEN` in `.env` to increase rate limits and improve download reliability.
 
 ---
 
