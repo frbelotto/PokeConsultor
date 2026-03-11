@@ -2,13 +2,9 @@
 
 import argparse
 import sys
-from pokeconsultor.agents.ai_agent import AIAgent
+
+from pokeconsultor.config import settings
 from pokeconsultor.services.logger import logger
-from pokeconsultor.services.rag.service import RAGService
-from pokeconsultor.services.rag.tooling import build_rag_context_tool
-from pokeconsultor.llm.base import llm_profiles
-from pokeconsultor.ui.cli import PokeConsultorCLI
-from pokeconsultor.llm.prompts import SYSTEM_MESSAGE
 
 
 def main():
@@ -16,6 +12,15 @@ def main():
     parser = argparse.ArgumentParser(description="PokeConsultor - AI Assistant")
     parser.add_argument("--gui", action="store_true", help="Run with PySide6 GUI")
     args = parser.parse_args()
+
+    settings.export_runtime_env()
+
+    from pokeconsultor.agents.ai_agent import AIAgent
+    from pokeconsultor.services.rag.service import RAGService
+    from pokeconsultor.services.rag.tooling import build_rag_context_tool
+    from pokeconsultor.llm.base import llm_profiles
+    from pokeconsultor.ui.cli import PokeConsultorCLI
+    from pokeconsultor.llm.prompts import SYSTEM_MESSAGE
 
     try:
         # 1. Configuration

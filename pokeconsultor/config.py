@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from threading import Lock
 from typing import Any, ClassVar
@@ -162,6 +163,27 @@ class Settings(BaseSettings):
                 return
             super().__init__(*args, **kwargs)
             self.__class__._initialized = True
+
+    def export_runtime_env(self) -> None:
+        """Export selected settings values to process environment variables.
+
+        This is useful for third-party libraries that only read API keys from
+        ``os.environ`` during initialization.
+        """
+
+        env_map: dict[str, SecretStr | None] = {
+            "GROQ_API_KEY": self.GROQ_API_KEY,
+            "HUGGINGFACE_HUB_TOKEN": self.HUGGINGFACE_HUB_TOKEN,
+        }
+
+        for env_name, secret_value in env_map.items():
+            if secret_value is None:
+                continue
+
+            value = secret_value.get_secret_value()
+            # Export even empty-string secrets if explicitly configured, but skip unset ones.
+            if value is not None and env_name not in os.environ:
+                os.environ[env_name] = value
 
 
 # Re-attach singleton controls explicitly after Pydantic class construction.
