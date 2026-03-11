@@ -15,7 +15,9 @@ from langgraph.checkpoint.memory import InMemorySaver
 class FakeSummarizationMiddleware:
     """Lightweight summarization middleware test double."""
 
-    def __init__(self, model: str, trigger: tuple[str, int], keep: tuple[str, int]) -> None:
+    def __init__(
+        self, model: str, trigger: tuple[str, int], keep: tuple[str, int]
+    ) -> None:
         self.model = model
         self.trigger = trigger
         self.keep = keep
@@ -66,7 +68,9 @@ class TestMemorySystem:
         """Ensure all expected PII protections are configured with redaction."""
         memory_module = load_memory_module(summarization_enabled=False)
 
-        pii_middlewares = [m for m in memory_module.middleware if isinstance(m, PIIMiddleware)]
+        pii_middlewares = [
+            m for m in memory_module.middleware if isinstance(m, PIIMiddleware)
+        ]
         expected_types = {
             "email",
             "credit_card",
@@ -102,14 +106,21 @@ class TestPIIMiddlewareFunctions:
     def _get_middleware_by_type(middlewares: list[Any], pii_type: str) -> PIIMiddleware:
         """Find a PIIMiddleware instance by its configured pii_type."""
         for middleware in middlewares:
-            if isinstance(middleware, PIIMiddleware) and middleware.pii_type == pii_type:
+            if (
+                isinstance(middleware, PIIMiddleware)
+                and middleware.pii_type == pii_type
+            ):
                 return middleware
         raise AssertionError(f"PIIMiddleware not found for pii_type={pii_type}")
 
-    def test_api_key_detector_matches_expected_pattern(self, load_memory_module: Any) -> None:
+    def test_api_key_detector_matches_expected_pattern(
+        self, load_memory_module: Any
+    ) -> None:
         """API key detector should identify OpenAI-like 'sk-' secret patterns."""
         memory_module = load_memory_module(summarization_enabled=False)
-        api_key_middleware = self._get_middleware_by_type(memory_module.middleware, "api_key")
+        api_key_middleware = self._get_middleware_by_type(
+            memory_module.middleware, "api_key"
+        )
 
         matches = api_key_middleware.detector(
             "token=sk-abcdefghijklmnopqrstuvwxyz1234567890"
@@ -117,10 +128,14 @@ class TestPIIMiddlewareFunctions:
 
         assert len(matches) >= 1
 
-    def test_bearer_detector_matches_expected_pattern(self, load_memory_module: Any) -> None:
+    def test_bearer_detector_matches_expected_pattern(
+        self, load_memory_module: Any
+    ) -> None:
         """Bearer token detector should identify authorization header patterns."""
         memory_module = load_memory_module(summarization_enabled=False)
-        bearer_middleware = self._get_middleware_by_type(memory_module.middleware, "bearer_token")
+        bearer_middleware = self._get_middleware_by_type(
+            memory_module.middleware, "bearer_token"
+        )
 
         matches = bearer_middleware.detector(
             "Authorization: Bearer abc123.XYZ-987_token+/="
@@ -142,7 +157,9 @@ class TestPIIMiddlewareFunctions:
     ) -> None:
         """Database URL detector should match all configured DB schemes."""
         memory_module = load_memory_module(summarization_enabled=False)
-        db_url_middleware = self._get_middleware_by_type(memory_module.middleware, "database_url")
+        db_url_middleware = self._get_middleware_by_type(
+            memory_module.middleware, "database_url"
+        )
 
         matches = db_url_middleware.detector(value)
 
