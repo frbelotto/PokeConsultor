@@ -17,7 +17,7 @@ def main():
 
     from pokeconsultor.agents.ai_agent import AIAgent
     from pokeconsultor.services.rag.service import RAGService
-    from pokeconsultor.services.rag.tooling import build_rag_context_tool
+    from pokeconsultor.services.rag.tooling import build_agent_tools
     from pokeconsultor.llm.base import llm_profiles
     from pokeconsultor.ui.cli import PokeConsultorCLI
     from pokeconsultor.llm.prompts import SYSTEM_MESSAGE
@@ -30,8 +30,12 @@ def main():
         print(f"⚙️  Inicializando PokeConsultor (modelo: {llm.model})...")
 
         rag_service = RAGService(llm_model=llm.model)
-        rag_tool = build_rag_context_tool(rag_service)
-        agent = AIAgent(llm=llm, systemprompt=SYSTEM_MESSAGE, tools=[rag_tool])
+        tools = build_agent_tools(
+            rag_service,
+            mcp_enabled=settings.POKEAPI_MCP_ENABLED,
+            mcp_server_url=settings.POKEAPI_MCP_SERVER_URL,
+        )
+        agent = AIAgent(llm=llm, systemprompt=SYSTEM_MESSAGE, tools=tools)
 
         if args.gui:
             try:

@@ -1,7 +1,6 @@
 """CLI UI for PokeConsultor."""
 
 import sys
-from pprint import PrettyPrinter
 from typing import Any
 
 from langchain.messages import HumanMessage
@@ -76,7 +75,7 @@ class PokeConsultorCLI:
                         print("📋 HISTÓRICO COMPLETO DE CONVERSA ")
                         print("=" * 80)
 
-                        self._print_memory_history(history)
+                        self._print_memory_history_raw(history)
 
                         print("\n" + "=" * 80)
                     continue
@@ -139,8 +138,10 @@ class PokeConsultorCLI:
         for state in history[:3]:
             print(state)
 
-    def _print_memory_history(self, history: list[Any]) -> None:
-        """Pretty print conversation history snapshots with full message content."""
+    def _print_memory_history_raw(self, history: list[Any]) -> None:
+        """Print raw conversation history snapshots for deep debugging."""
+        from pprint import PrettyPrinter
+
         printer = PrettyPrinter(width=140, compact=False, sort_dicts=False)
 
         for index, snapshot in enumerate(history, 1):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -10,6 +11,7 @@ from langchain_core.documents import Document
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
+from pokeconsultor.config import settings
 from pokeconsultor.services.logger import logger
 from pokeconsultor.services.rag.service import RAGService
 
@@ -23,6 +25,56 @@ class RetrieveContextInput(BaseModel):
     """Input schema for retrieve_context tool."""
 
     query: str = Field(description="User query to retrieve relevant local context")
+
+
+def _build_mcp_connections(server_url: str) -> dict[str, Any]:
+    """Build MCP connection mapping for MultiServerMCPClient."""
+    token = settings.POKEAPI_MCP_AUTH_TOKEN
+    token_value = token.get_secret_value() if token is not None else ""
+
+    connection: dict[str, Any] = {
+        "transport": "http",
+        "url": server_url,
+    }
+
+    if token_value:
+        connection["headers"] = {
+            "Authorization": f"Bearer {token_value}",
+            "MCP-Proxy-Auth-Token": token_value,
+        }
+
+    return {"pokeapi": connection}
+
+
+async def _load_mcp_tools_async(server_url: str) -> list[Any]:
+    """Load MCP tools asynchronously using LangChain MCP adapters."""
+    from langchain_mcp_adapters.client import MultiServerMCPClient
+
+    client = MultiServerMCPClient(
+        _build_mcp_connections(server_url),
+        tool_name_prefix=True,
+    )
+    return await client.get_tools()
+
+
+def _load_mcp_tools(server_url: str) -> list[Any]:
+    """Load MCP tools with graceful fallback when MCP is unavailable."""
+    try:
+        tools = asyncio.run(_load_mcp_tools_async(server_url))
+        logger.info("[MCP TOOLING] loaded_mcp_tools=%d", len(tools))
+        return tools
+    except ImportError as exc:
+        logger.warning(
+            "[MCP TOOLING] langchain-mcp-adapters not available; using RAG only | error=%s",
+            exc,
+        )
+        return []
+    except (RuntimeError, ConnectionError, TimeoutError) as exc:
+        logger.warning(
+            "[MCP TOOLING] MCP unavailable; using RAG only | error=%s",
+            exc,
+        )
+        return []
 
 
 def build_rag_context_tool(rag_service: RAGService) -> Any:
@@ -73,3 +125,21 @@ def build_rag_context_tool(rag_service: RAGService) -> Any:
         )
 
     return retrieve_context
+
+
+def build_agent_tools(
+    rag_service: RAGService,
+    *,
+    mcp_enabled: bool,
+    mcp_server_url: str,
+) -> list[Any]:
+    """Compose tools for the agent while keeping RAG always enabled."""
+    rag_tool = build_rag_context_tool(rag_service)
+    tools: list[Any] = [rag_tool]
+
+    if not mcp_enabled:
+        return tools
+
+    mcp_tools = _load_mcp_tools(mcp_server_url)
+    tools.extend(mcp_tools)
+    return tools

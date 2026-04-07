@@ -99,6 +99,10 @@ class Settings(BaseSettings):
         default=False,
         description="Enable/disable PokeAPI MCP server",
     )
+    POKEAPI_MCP_AUTH_TOKEN: SecretStr | None = Field(
+        default=None,
+        description="Optional auth token for MCP proxy/server",
+    )
 
     LOG_LEVEL: str = Field(
         default="INFO",

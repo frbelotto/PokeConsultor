@@ -1,3 +1,4 @@
+import asyncio
 import threading
 from typing import Any, cast
 
@@ -9,7 +10,6 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from pokeconsultor.config import settings
 from pokeconsultor.llm.base import LLMProfile
 from pokeconsultor.services.logger import logger
 from pokeconsultor.services.memory import checkpointer, middleware
@@ -83,9 +83,11 @@ class AIAgent(BaseModel):
             },
         )
 
-        raw = self._agent.invoke(
-            {"messages": messages},
-            invoke_config,
+        raw = asyncio.run(
+            self._agent.ainvoke(
+                {"messages": messages},
+                invoke_config,
+            )
         )
 
         return self._normalize_output(raw)

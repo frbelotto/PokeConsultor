@@ -51,6 +51,7 @@ def valid_settings_data() -> dict:
         "LLM_PROFILE_SUPERVISOR_MAX_TOKENS": 8192,
         "GROQ_API_KEY": "gsk_test_key",
         "POKEAPI_MCP_SERVER_URL": "http://localhost:8000",
+        "POKEAPI_MCP_ENABLED": False,
         "DATA_PATH": "data/",
         "CACHE_DIR": ".cache",
     }
